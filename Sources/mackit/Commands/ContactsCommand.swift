@@ -17,27 +17,43 @@ extension ContactsCommand {
     struct Search: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "search",
-            abstract: "Search contacts by name, email, or phone"
+            abstract: "Search contacts by name, email, or phone",
+            discussion: """
+                Searches across given name, family name, email, and phone fields. \
+                Use --email or --phone for pipe-friendly single-value output.
+
+                EXAMPLES:
+                  mackit contacts search "John"                   # Full contact cards
+                  mackit contacts search "John" --email            # Just emails, one per line
+                  mackit contacts search "John" --email | pbcopy   # Copy to clipboard
+                  mackit contacts search "John" --phone            # Just phone numbers
+                  mackit contacts search --org "Apple" "John"
+                  mackit contacts search "John" --json givenName,emailAddresses
+                """
         )
 
         @OptionGroup var globals: GlobalOptions
 
-        @Argument(help: "Search query")
+        @Argument(help: "Search query (matches name, email, or phone)")
         var query: String
 
-        @Flag(name: .long, help: "Output only email addresses (one per line)")
+        @Flag(name: .long, help: "Output only email addresses (one per line, pipe-friendly)")
         var email: Bool = false
 
-        @Flag(name: .long, help: "Output only phone numbers (one per line)")
+        @Flag(name: .long, help: "Output only phone numbers (one per line, pipe-friendly)")
         var phone: Bool = false
 
-        @Option(name: .long, help: "Filter by organization")
+        @Option(name: .long, help: "Filter by organization name")
         var org: String?
 
-        @Option(name: [.short, .customLong("limit")], help: "Max results")
+        @Option(name: [.short, .customLong("limit")], help: "Max results to return")
         var limit: Int?
 
-        @Option(name: .customLong("json"), help: "Output JSON with specific fields")
+        @Option(name: .customLong("json"), help: """
+            Output JSON with specific fields (comma-separated). \
+            Fields: id, givenName, familyName, organizationName, \
+            emailAddresses, phoneNumbers, birthday, note
+            """)
         var jsonFields: String?
 
         func run() async throws {
@@ -96,7 +112,14 @@ extension ContactsCommand {
     struct Birthdays: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "birthdays",
-            abstract: "Upcoming birthdays"
+            abstract: "Upcoming birthdays",
+            discussion: """
+                Shows contacts with birthdays within the next N days.
+
+                EXAMPLES:
+                  mackit contacts birthdays                # Next 30 days
+                  mackit contacts birthdays --days 7       # This week
+                """
         )
 
         @OptionGroup var globals: GlobalOptions

@@ -24,15 +24,30 @@ extension CalendarCommand {
     struct ListEvents: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "list",
-            abstract: "List calendar events (default: today's remaining events)"
+            abstract: "List calendar events (default: today's remaining events)",
+            discussion: """
+                Shows events for a date range. By default, shows today's remaining events \
+                (past events are hidden unless --include-past is used).
+
+                DATE FORMATS: YYYY-MM-DD, 'today', 'tomorrow', 'yesterday', day names \
+                ('monday', 'friday'), 'next monday', 'next week'
+
+                EXAMPLES:
+                  mackit cal                              # Today's remaining events
+                  mackit cal tomorrow                     # Tomorrow's events
+                  mackit cal week                         # Next 7 days
+                  mackit cal --from monday --to friday    # Date range
+                  mackit cal -c Work -c Personal          # Multiple calendars
+                  mackit cal --json title,startDate,meetingURL
+                """
         )
 
         @OptionGroup var globals: GlobalOptions
 
-        @Option(name: .long, help: "Start date (ISO 8601 or natural: today, tomorrow, monday)")
+        @Option(name: .long, help: "Start date: YYYY-MM-DD, 'today', 'tomorrow', day name, 'next week'")
         var from: String?
 
-        @Option(name: .long, help: "End date")
+        @Option(name: .long, help: "End date (same formats as --from)")
         var to: String?
 
         @Option(name: [.short, .customLong("calendar")], help: "Filter by calendar name (repeatable)")
@@ -41,10 +56,14 @@ extension CalendarCommand {
         @Option(name: [.short, .customLong("limit")], help: "Max number of events")
         var limit: Int?
 
-        @Flag(name: .customLong("include-past"), help: "Include past events today")
+        @Flag(name: .customLong("include-past"), help: "Include past events today (default: hidden)")
         var includePast: Bool = false
 
-        @Option(name: .customLong("json"), help: "Output JSON with specific fields (comma-separated)")
+        @Option(name: .customLong("json"), help: """
+            Output JSON with specific fields (comma-separated). \
+            Fields: id, title, startDate, endDate, isAllDay, location, \
+            calendarName, calendarColor, status, organizer, notes, url, meetingURL
+            """)
         var jsonFields: String?
 
         @Argument(help: "Shortcut: 'today', 'tomorrow', or 'week'")
@@ -142,12 +161,21 @@ extension CalendarCommand {
     struct NextEvent: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "next",
-            abstract: "Show the next upcoming event"
+            abstract: "Show the next upcoming event",
+            discussion: """
+                Returns the next event that hasn't ended yet. Extracts meeting URLs \
+                from Zoom, Google Meet, Teams, Webex, and Around links.
+
+                EXAMPLES:
+                  mackit cal next                         # Full event details
+                  mackit cal next --url                   # Just the meeting URL
+                  open $(mackit cal next --url)           # Open next meeting
+                """
         )
 
         @OptionGroup var globals: GlobalOptions
 
-        @Flag(name: .long, help: "Print only the meeting URL")
+        @Flag(name: .long, help: "Print only the meeting URL (Zoom, Meet, Teams, Webex, Around)")
         var url: Bool = false
 
         func run() async throws {
@@ -181,15 +209,25 @@ extension CalendarCommand {
     struct FreeSlots: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "free",
-            abstract: "Show free time slots"
+            abstract: "Show free time slots",
+            discussion: """
+                Calculates gaps between events during working hours (9 AM - 5 PM). \
+                Past slots are excluded.
+
+                EXAMPLES:
+                  mackit cal free                         # Free slots today
+                  mackit cal free --date tomorrow         # Free slots tomorrow
+                  mackit cal free --duration 30m          # Only slots >= 30 min
+                  mackit cal free --duration 1h           # Only slots >= 1 hour
+                """
         )
 
         @OptionGroup var globals: GlobalOptions
 
-        @Option(name: .long, help: "Date to check (default: today)")
+        @Option(name: .long, help: "Date to check: YYYY-MM-DD, 'today', 'tomorrow', day name (default: today)")
         var date: String?
 
-        @Option(name: .long, help: "Minimum slot duration (e.g. 30m, 1h)")
+        @Option(name: .long, help: "Minimum slot duration: 30m, 1h, 90m (default: show all)")
         var duration: String?
 
         func run() async throws {

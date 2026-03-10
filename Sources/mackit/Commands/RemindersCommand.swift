@@ -23,7 +23,17 @@ extension RemindersCommand {
     struct ListReminders: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "list",
-            abstract: "List reminders (default: incomplete across all lists)"
+            abstract: "List reminders (default: incomplete across all lists)",
+            discussion: """
+                Shows incomplete reminders by default. Use --completed to include done items.
+
+                EXAMPLES:
+                  mackit rem                              # All incomplete reminders
+                  mackit rem -l Shopping                  # Just Shopping list
+                  mackit rem --due today                  # Due today
+                  mackit rem --completed                  # Include completed
+                  mackit rem --json title,dueDate,listName,priority
+                """
         )
 
         @OptionGroup var globals: GlobalOptions
@@ -31,16 +41,19 @@ extension RemindersCommand {
         @Option(name: [.short, .customLong("list")], help: "Filter by list name")
         var listName: String?
 
-        @Flag(name: .long, help: "Include completed reminders")
+        @Flag(name: .long, help: "Include completed reminders (default: incomplete only)")
         var completed: Bool = false
 
-        @Option(name: .long, help: "Filter by due date (today, tomorrow, ISO date)")
+        @Option(name: .long, help: "Filter by due date: YYYY-MM-DD, 'today', 'tomorrow', day name")
         var due: String?
 
-        @Option(name: [.customShort("n"), .customLong("limit")], help: "Max reminders")
+        @Option(name: [.customShort("n"), .customLong("limit")], help: "Max reminders to return")
         var limit: Int?
 
-        @Option(name: .customLong("json"), help: "Output JSON with specific fields")
+        @Option(name: .customLong("json"), help: """
+            Output JSON with specific fields (comma-separated). \
+            Fields: id, title, dueDate, isCompleted, completionDate, priority, listName, notes
+            """)
         var jsonFields: String?
 
         func run() async throws {
