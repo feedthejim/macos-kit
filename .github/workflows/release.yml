@@ -1,0 +1,37 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Run tests
+        run: swift test
+
+      - name: Build universal binary
+        run: |
+          swift build -c release --arch arm64
+          swift build -c release --arch x86_64
+          mkdir -p release
+          lipo -create \
+            .build/arm64-apple-macosx/release/mackit \
+            .build/x86_64-apple-macosx/release/mackit \
+            -output release/mackit
+          chmod +x release/mackit
+          cd release && tar czf mackit-macos-universal.tar.gz mackit
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/mackit-macos-universal.tar.gz
+          generate_release_notes: true
