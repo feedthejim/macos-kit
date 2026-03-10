@@ -11,6 +11,10 @@ struct CalendarCommand: AsyncParsableCommand {
             NextEvent.self,
             FreeSlots.self,
             ListCalendars.self,
+            Create.self,
+            Delete.self,
+            Move.self,
+            Update.self,
         ],
         defaultSubcommand: ListEvents.self
     )

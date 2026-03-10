@@ -1,6 +1,6 @@
 ---
 name: mackit-calendar
-description: Use when accessing the user's macOS calendar, checking upcoming meetings, finding meeting links, checking availability, or scheduling around existing events. Auto-triggers on questions like "what's on my calendar", "am I free at", "what's my next meeting", "join my next call".
+description: Use when accessing the user's macOS calendar, checking upcoming meetings, finding meeting links, checking availability, creating/deleting/rescheduling events, or scheduling around existing events. Auto-triggers on questions like "what's on my calendar", "am I free at", "what's my next meeting", "join my next call", "schedule a meeting", "cancel my 3pm", "move my meeting".
 ---
 
 # mackit calendar
@@ -53,6 +53,53 @@ mackit cal free --date tomorrow --duration 30m
 
 # Check if free for 1 hour
 mackit cal free --duration 1h
+```
+
+### Create event
+
+```bash
+# Basic event
+mackit cal create "Coffee with Sarah" --date tomorrow --from 3pm --to 3:30pm
+
+# With calendar, location, notes
+mackit cal create "Design Review" --date friday --from 2pm --to 3pm \
+  -c Work --location "Room 4" --notes "Bring mockups"
+
+# All-day event
+mackit cal create "Team Offsite" --date 2026-03-20 --all-day
+
+# Preview without creating
+mackit cal create "Test" --date tomorrow --from 1pm --to 2pm --dry-run
+```
+
+### Delete event
+
+```bash
+# Shows event details, asks for confirmation
+mackit cal delete <event-id>
+
+# Skip confirmation
+mackit cal delete <event-id> --yes
+```
+
+### Reschedule event
+
+```bash
+# Move to new date (preserves time and duration)
+mackit cal move <event-id> --date friday
+
+# Move to new time
+mackit cal move <event-id> --from 3pm --to 4pm
+
+# Move to new date and time
+mackit cal move <event-id> --date monday --from 10am --to 11am
+```
+
+### Update event
+
+```bash
+mackit cal update <event-id> --notes "Updated agenda"
+mackit cal update <event-id> --title "New Title" --location "Room 5"
 ```
 
 ### List calendars

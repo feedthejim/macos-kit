@@ -63,6 +63,88 @@ public enum DateParsing: Sendable {
         throw MacKitError.invalidDateFormat(input)
     }
 
+    /// Parses a time string like "3pm", "14:30", "9:30am" to today at that time.
+    public static func parseTime(_ input: String) throws -> Date {
+        let trimmed = input.trimmingCharacters(in: .whitespaces).lowercased()
+
+        guard !trimmed.isEmpty else {
+            throw MacKitError.invalidDateFormat(input)
+        }
+
+        let hour: Int
+        let minute: Int
+
+        if let match = trimmed.wholeMatch(of: /(\d{1,2}):(\d{2})\s*(am|pm)?/) {
+            // Formats: "14:30", "9:30am", "2:30pm"
+            guard let h = Int(match.1), let m = Int(match.2) else {
+                throw MacKitError.invalidDateFormat(input)
+            }
+            if let period = match.3 {
+                guard h >= 1 && h <= 12 && m >= 0 && m <= 59 else {
+                    throw MacKitError.invalidDateFormat(input)
+                }
+                if period == "am" {
+                    hour = h == 12 ? 0 : h
+                } else {
+                    hour = h == 12 ? 12 : h + 12
+                }
+            } else {
+                // 24-hour format
+                guard h >= 0 && h <= 23 && m >= 0 && m <= 59 else {
+                    throw MacKitError.invalidDateFormat(input)
+                }
+                hour = h
+            }
+            minute = m
+        } else if let match = trimmed.wholeMatch(of: /(\d{1,2})\s*(am|pm)/) {
+            // Formats: "3pm", "12am"
+            guard let h = Int(match.1), h >= 1 && h <= 12 else {
+                throw MacKitError.invalidDateFormat(input)
+            }
+            let period = match.2
+            if period == "am" {
+                hour = h == 12 ? 0 : h
+            } else {
+                hour = h == 12 ? 12 : h + 12
+            }
+            minute = 0
+        } else {
+            throw MacKitError.invalidDateFormat(input)
+        }
+
+        var components = calendar.dateComponents([.year, .month, .day], from: Date())
+        components.hour = hour
+        components.minute = minute
+        components.second = 0
+
+        guard let date = calendar.date(from: components) else {
+            throw MacKitError.invalidDateFormat(input)
+        }
+        return date
+    }
+
+    /// Combines a date string (parsed via `parse`) with a time string (parsed via `parseTime`).
+    public static func parseDateTime(_ dateStr: String, time timeStr: String) throws -> Date {
+        let dateOnly = try parse(dateStr)
+        let timeOnly = try parseTime(timeStr)
+
+        let dateComponents = calendar.dateComponents([.year, .month, .day], from: dateOnly)
+        let timeComponents = calendar.dateComponents([.hour, .minute, .second], from: timeOnly)
+
+        var combined = DateComponents()
+        combined.year = dateComponents.year
+        combined.month = dateComponents.month
+        combined.day = dateComponents.day
+        combined.hour = timeComponents.hour
+        combined.minute = timeComponents.minute
+        combined.second = timeComponents.second
+
+        guard let date = calendar.date(from: combined) else {
+            throw MacKitError.invalidDateFormat("\(dateStr) \(timeStr)")
+        }
+        return date
+    }
+
     private static func nextWeekday(_ target: Int, includeToday: Bool = false) -> Date {
         let today = Date()
         let todayWeekday = calendar.component(.weekday, from: today)

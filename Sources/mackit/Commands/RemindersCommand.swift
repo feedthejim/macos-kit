@@ -10,6 +10,10 @@ struct RemindersCommand: AsyncParsableCommand {
             ListReminders.self,
             Overdue.self,
             ListLists.self,
+            Add.self,
+            Done.self,
+            DeleteReminder.self,
+            MoveReminder.self,
         ],
         defaultSubcommand: ListReminders.self
     )

@@ -13,6 +13,7 @@ struct MacKit: AsyncParsableCommand {
             ContactsCommand.self,
             FocusCommand.self,
             NotifyCommand.self,
+            MCPCommand.self,
         ]
     )
 }

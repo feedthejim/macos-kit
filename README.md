@@ -1,6 +1,6 @@
 # mackit
 
-Native macOS data from the command line. Access calendars, reminders, contacts, and more using Apple's native frameworks (EventKit, Contacts) with structured JSON output.
+Native macOS data from the command line. Read and write calendars, reminders, contacts, and more using Apple's native frameworks (EventKit, Contacts) with structured JSON output. Includes an MCP server for AI agent integration.
 
 No AppleScript. No icalbuddy. Just fast, native Swift.
 
@@ -33,21 +33,26 @@ mackit cal
 mackit cal tomorrow
 mackit cal week
 
-# Next event (detailed)
+# Next event + meeting URL
 mackit cal next
-
-# Just the meeting URL (pipe to open)
 open $(mackit cal next --url)
 
 # Free time slots
-mackit cal free
 mackit cal free --date tomorrow --duration 30m
 
 # Filter by calendar and date range
 mackit cal -c Work --from monday --to friday
 
-# List calendars
-mackit cal calendars
+# Create event
+mackit cal create "Coffee with Sarah" --date tomorrow --from 3pm --to 3:30pm
+mackit cal create "Design Review" --date friday --from 2pm --to 3pm -c Work --location "Room 4"
+
+# Reschedule
+mackit cal move <event-id> --date friday --from 3pm
+
+# Update / delete
+mackit cal update <event-id> --notes "Bring laptop"
+mackit cal delete <event-id> --yes
 
 # JSON with field selection
 mackit cal --json title,startDate,meetingURL
@@ -56,43 +61,39 @@ mackit cal --json title,startDate,meetingURL
 ### Reminders
 
 ```bash
-# Incomplete reminders (all lists)
+# List (incomplete by default)
 mackit rem
-
-# Overdue
+mackit rem -l Shopping
 mackit rem overdue
 
-# Filter by list
-mackit rem -l Shopping
+# Add
+mackit rem add "Buy milk" --list Shopping
+mackit rem add "Review PR" --list Work --due tomorrow --priority high
 
-# All lists with counts
-mackit rem lists
+# Complete (fuzzy title match)
+mackit rem done "milk"
+
+# Move between lists
+mackit rem move "Buy eggs" --to Groceries
+
+# Delete
+mackit rem delete <id> --yes
 ```
 
 ### Contacts
 
 ```bash
-# Search by name
 mackit contacts search "John"
-
-# Just email addresses (pipe to pbcopy)
-mackit contacts search "John" --email
-
-# Just phone numbers
-mackit contacts search "John" --phone
-
-# Upcoming birthdays
+mackit contacts search "John" --email        # Just emails, one per line
+mackit contacts search "John" --phone        # Just phones
 mackit contacts birthdays --days 7
 ```
 
 ### Focus / Do Not Disturb
 
 ```bash
-# Check status
 mackit focus
-
-# Use in scripts (exit code: 0=on, 1=off)
-mackit focus --quiet && echo "DND is on"
+mackit focus --quiet && echo "DND is on"     # Exit code for scripting
 ```
 
 ### Notifications
@@ -102,80 +103,90 @@ mackit notify "Build Complete" "All tests passed"
 mackit notify "Deploy" "v2.1.0" --subtitle "us-east-1" --sound default
 ```
 
-## Output Formats
+## MCP Server
 
-mackit auto-detects the best output format:
-- **Terminal** (interactive): human-readable text
-- **Piped** (e.g., `| jq`): JSON
+mackit includes a built-in MCP server for AI agent integration (Claude Code, Claude Desktop, etc.).
 
-Override with `--format`:
-```bash
-mackit cal --format json
-mackit cal --format text
-mackit cal --format table
+### Setup
+
+**Claude Code** (project `.mcp.json`):
+```json
+{
+  "mcpServers": {
+    "mackit": {
+      "command": "mackit",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
 
-### JSON Field Selection
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "mackit": {
+      "command": "/usr/local/bin/mackit",
+      "args": ["mcp"]
+    }
+  }
+}
+```
 
-Select specific fields (like `gh --json`):
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `calendar_list` | List events with date range, calendar filter |
+| `calendar_next` | Next upcoming event with meeting URL |
+| `calendar_free` | Free time slots for scheduling |
+| `calendar_create` | Create a calendar event |
+| `calendar_delete` | Delete an event |
+| `calendar_update` | Update event fields |
+| `calendar_move` | Reschedule an event |
+| `reminders_list` | List reminders by list, status, due date |
+| `reminders_overdue` | All overdue reminders |
+| `reminders_add` | Create a reminder |
+| `reminders_complete` | Complete by title match or ID |
+| `reminders_delete` | Delete a reminder |
+| `reminders_move` | Move to another list |
+| `contacts_search` | Search by name, email, phone |
+| `contacts_birthdays` | Upcoming birthdays |
+| `focus_status` | Check Focus/DND mode |
+| `notify_send` | Send a macOS notification |
+
+## Output Formats
+
+Auto-detects: text in terminal, JSON when piped. Override with `--format json|text|table`.
+
+**JSON field selection** (like `gh --json`):
 ```bash
 mackit cal --json title,startDate,meetingURL
 mackit contacts search "John" --json givenName,emailAddresses
 ```
 
-Invalid field names show available options:
-```
-Error: Unknown field 'foo'. Available fields: calendarName, endDate, id, ...
-```
-
-## Claude Code Skills
-
-mackit ships with [Claude Code](https://claude.ai/claude-code) skills so Claude can use your calendar, reminders, and contacts natively. Install them:
-
-```bash
-# From the mackit repo
-ln -s $(pwd)/skills/mackit-calendar ~/.claude/skills/mackit-calendar
-ln -s $(pwd)/skills/mackit-reminders ~/.claude/skills/mackit-reminders
-ln -s $(pwd)/skills/mackit-contacts ~/.claude/skills/mackit-contacts
-ln -s $(pwd)/skills/mackit-focus ~/.claude/skills/mackit-focus
-```
-
-Once installed, Claude can answer questions like:
-- "What's on my calendar today?"
-- "Am I free at 3pm tomorrow?"
-- "What's John's email?"
-- "What reminders are overdue?"
-- "Open my next meeting"
-
 ## Permissions
 
-mackit uses native Apple frameworks that require permission on first use. A system dialog will appear automatically. If denied, you'll see:
-
-```
-Access denied: Calendar permission is required.
-Grant access in: System Settings > Privacy & Security > Calendars
-```
-
-| Command     | Permission Required |
-|------------|-------------------|
-| `cal`      | Calendars         |
-| `rem`      | Reminders         |
-| `contacts` | Contacts          |
-| `notify`   | Notifications     |
-| `focus`    | None              |
+| Command     | Permission |
+|------------|-----------|
+| `cal`      | Calendars |
+| `rem`      | Reminders |
+| `contacts` | Contacts  |
+| `notify`   | Notifications |
+| `focus`    | None      |
+| `mcp`      | All (on demand) |
 
 ## Architecture
 
 ```
 Sources/
-  mackit/          # CLI (swift-argument-parser commands)
-  MacKitCore/      # Library (services, models, output rendering)
-Tests/
-  MacKitCoreTests/ # 120 tests across 14 suites
+  mackit/          # CLI commands (swift-argument-parser)
+  MacKitCore/      # Library (services, models, MCP server)
+Tests/             # 147 tests across 16 suites
 skills/            # Claude Code skills
 ```
 
-Every Apple framework call is behind a protocol, making the library fully testable with mocks. `MacKitCore` can be imported as a library in other Swift projects.
+Protocol-based services with full mock support. `MacKitCore` is importable as a library.
 
 ## Requirements
 
