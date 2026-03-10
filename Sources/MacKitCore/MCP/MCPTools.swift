@@ -7,19 +7,22 @@ public enum MCPTools: Sendable {
         // Calendar read
         MCPToolDefinition(
             name: "calendar_list",
-            description: "List calendar events within a date range. Returns events with title, time, calendar, location, and meeting URL. Defaults to today's remaining events.",
+            description: "List calendar events within a date range. Returns compact events (title, time, calendar, meetingURL). Use 'fields' to request additional data like notes or organizer.",
             inputSchema: schema(properties: [
                 "from": prop(.string, "Start date: ISO 8601 (YYYY-MM-DD), 'today', 'tomorrow', day name"),
                 "to": prop(.string, "End date (same formats)"),
                 "calendar": prop(.string, "Filter by calendar name"),
                 "limit": prop(.integer, "Max events to return"),
                 "includePast": prop(.boolean, "Include past events today (default: false)"),
+                "fields": prop(.string, "Comma-separated extra fields: notes, organizer, calendarColor, url, status. Default returns compact view."),
             ])
         ),
         MCPToolDefinition(
             name: "calendar_next",
-            description: "Get the next upcoming calendar event with full details including meeting URL.",
-            inputSchema: schema(properties: [:])
+            description: "Get the next upcoming calendar event. Returns compact view. Use 'fields' to request additional data.",
+            inputSchema: schema(properties: [
+                "fields": prop(.string, "Comma-separated extra fields: notes, organizer, calendarColor, url, status"),
+            ])
         ),
         MCPToolDefinition(
             name: "calendar_free",

@@ -152,7 +152,8 @@ public final class MCPServer: @unchecked Sendable {
             events = Array(events.prefix(limit))
         }
 
-        return MCPToolResult(text: try jsonString(events))
+        let extraFields = parseFields(args["fields"]?.stringValue)
+        return MCPToolResult(text: try compactEvents(events, extraFields: extraFields))
     }
 
     private func handleCalendarNext(_ args: [String: JSONValue]) async throws -> MCPToolResult {
@@ -160,7 +161,8 @@ public final class MCPServer: @unchecked Sendable {
         guard let event = try await calendarService.nextEvent() else {
             return MCPToolResult(text: "No upcoming events")
         }
-        return MCPToolResult(text: try jsonString(event))
+        let extraFields = parseFields(args["fields"]?.stringValue)
+        return MCPToolResult(text: try compactEvent(event, extraFields: extraFields))
     }
 
     private func handleCalendarFree(_ args: [String: JSONValue]) async throws -> MCPToolResult {
@@ -225,7 +227,7 @@ public final class MCPServer: @unchecked Sendable {
         )
 
         let event = try await service.createEvent(request)
-        return MCPToolResult(text: try jsonString(event))
+        return MCPToolResult(text: try compactEvent(event))
     }
 
     private func handleCalendarDelete(_ args: [String: JSONValue]) async throws -> MCPToolResult {
@@ -249,7 +251,7 @@ public final class MCPServer: @unchecked Sendable {
             notes: args["notes"]?.stringValue
         )
         let event = try await service.updateEvent(request)
-        return MCPToolResult(text: try jsonString(event))
+        return MCPToolResult(text: try compactEvent(event))
     }
 
     private func handleCalendarMove(_ args: [String: JSONValue]) async throws -> MCPToolResult {
@@ -285,7 +287,7 @@ public final class MCPServer: @unchecked Sendable {
 
         let updated = try await service.updateEvent(
             UpdateEventRequest(eventId: eventId, startDate: newStart, endDate: newEnd))
-        return MCPToolResult(text: try jsonString(updated))
+        return MCPToolResult(text: try compactEvent(updated))
     }
 
     // MARK: - Reminders Read Handlers
@@ -400,7 +402,46 @@ public final class MCPServer: @unchecked Sendable {
         return MCPToolResult(text: "{\"sent\": true}")
     }
 
-    // MARK: - Helpers
+    // MARK: - Compact MCP Serialization
+    // MCP responses should be concise to avoid wasting agent context.
+    // Full notes, HTML content, and calendar colors are stripped.
+
+    private func compactEvents(_ events: [CalendarEvent], extraFields: Set<String> = []) throws -> String {
+        let isoFormatter = ISO8601DateFormatter()
+        let compact = events.map { e -> [String: Any?] in
+            var dict: [String: Any?] = [
+                "id": e.id,
+                "title": e.title,
+                "start": isoFormatter.string(from: e.startDate),
+                "end": isoFormatter.string(from: e.endDate),
+                "allDay": e.isAllDay ? true : nil,
+                "calendar": e.calendarName,
+                "location": e.location.flatMap { loc in
+                    loc.contains("zoom.us") || loc.contains("teams.microsoft") ? nil : loc
+                },
+                "meetingURL": e.meetingURL,
+                "status": e.status.rawValue,
+            ]
+            // Extra fields, only included when requested
+            if extraFields.contains("notes") { dict["notes"] = e.notes }
+            if extraFields.contains("organizer") { dict["organizer"] = e.organizer }
+            if extraFields.contains("calendarColor") { dict["calendarColor"] = e.calendarColor }
+            if extraFields.contains("url") { dict["url"] = e.url }
+            return dict
+        }.map { dict in dict.compactMapValues { $0 } }
+        let data = try JSONSerialization.data(withJSONObject: compact, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    private func compactEvent(_ event: CalendarEvent, extraFields: Set<String> = []) throws -> String {
+        try compactEvents([event], extraFields: extraFields)
+            .replacingOccurrences(of: "^\\[|\\]$", with: "", options: .regularExpression)
+    }
+
+    private func parseFields(_ input: String?) -> Set<String> {
+        guard let input else { return [] }
+        return Set(input.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+    }
 
     private func jsonString<T: Encodable>(_ value: T) throws -> String {
         let data = try encoder.encode(value)
