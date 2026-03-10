@@ -11,6 +11,7 @@ struct MacKit: AsyncParsableCommand {
             CalendarCommand.self,
             RemindersCommand.self,
             ContactsCommand.self,
+            MailCommand.self,
             FocusCommand.self,
             NotifyCommand.self,
             MCPCommand.self,

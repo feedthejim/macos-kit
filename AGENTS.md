@@ -2,7 +2,7 @@
 
 ## Project
 
-Native macOS CLI tool for accessing calendar, reminders, contacts, focus status, and notifications. Includes MCP server for AI agent integration.
+Native macOS CLI tool for accessing calendar, reminders, contacts, mail, focus status, and notifications. Includes MCP server for AI agent integration.
 
 **Binary:** `mackit` | **Package:** `macos-kit` | **Language:** Swift 6.0 | **Min OS:** macOS 13
 
@@ -27,7 +27,7 @@ Key patterns:
 ```bash
 swift build              # Debug build
 swift build -c release   # Release build
-swift test               # Run all 202 tests (no TCC permissions needed)
+swift test               # Run all 225 tests (no TCC permissions needed)
 mackit --version         # Verify installed binary
 
 # Shell completions
@@ -36,7 +36,7 @@ mackit completions bash > /usr/local/etc/bash_completion.d/mackit
 mackit completions fish > ~/.config/fish/completions/mackit.fish
 ```
 
-Tests use mocks exclusively. No calendar/contacts/reminders access needed in CI.
+Tests use mocks exclusively. No calendar/contacts/reminders/mail access needed in CI.
 
 ## Directory Structure
 

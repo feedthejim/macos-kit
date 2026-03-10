@@ -14,6 +14,7 @@ public final class MCPServer: @unchecked Sendable {
     private let remindersService = LiveRemindersService()
     private let remindersWriteService = LiveRemindersWriteService()
     private let contactsService = LiveContactsService()
+    private let mailService = LiveMailService()
 
     public init() {}
 
@@ -117,6 +118,18 @@ public final class MCPServer: @unchecked Sendable {
         // Contacts
         case "contacts_search": return try await handleContactsSearch(args)
         case "contacts_birthdays": return try await handleContactsBirthdays(args)
+        // Mail read
+        case "mail_list": return try await handleMailList(args)
+        case "mail_search": return try await handleMailSearch(args)
+        case "mail_read": return try await handleMailRead(args)
+        case "mail_mailboxes": return try await handleMailMailboxes(args)
+        case "mail_accounts": return try await handleMailAccounts(args)
+        // Mail write
+        case "mail_send": return try await handleMailSend(args)
+        case "mail_mark_read": return try await handleMailMarkRead(args)
+        case "mail_mark_unread": return try await handleMailMarkUnread(args)
+        case "mail_move": return try await handleMailMove(args)
+        case "mail_delete": return try await handleMailDelete(args)
         // System
         case "focus_status": return handleFocusStatus(args)
         case "notify_send": return try await handleNotifySend(args)
@@ -402,6 +415,109 @@ public final class MCPServer: @unchecked Sendable {
         return MCPToolResult(text: "{\"sent\": true}")
     }
 
+    // MARK: - Mail Read Handlers
+
+    private func handleMailList(_ args: [String: JSONValue]) async throws -> MCPToolResult {
+        let messages = try await mailService.messages(
+            mailbox: args["mailbox"]?.stringValue,
+            account: args["account"]?.stringValue,
+            limit: args["limit"]?.intValue ?? 25,
+            unreadOnly: args["unreadOnly"]?.boolValue ?? false
+        )
+        let extraFields = parseFields(args["fields"]?.stringValue)
+        return MCPToolResult(text: try compactMessages(messages, extraFields: extraFields))
+    }
+
+    private func handleMailSearch(_ args: [String: JSONValue]) async throws -> MCPToolResult {
+        guard let query = args["query"]?.stringValue else {
+            return MCPToolResult(text: "Missing required: query", isError: true)
+        }
+        let messages = try await mailService.searchMessages(
+            query: query,
+            mailbox: args["mailbox"]?.stringValue,
+            account: args["account"]?.stringValue,
+            limit: args["limit"]?.intValue ?? 25
+        )
+        let extraFields = parseFields(args["fields"]?.stringValue)
+        return MCPToolResult(text: try compactMessages(messages, extraFields: extraFields))
+    }
+
+    private func handleMailRead(_ args: [String: JSONValue]) async throws -> MCPToolResult {
+        guard let id = args["id"]?.stringValue,
+              let mailbox = args["mailbox"]?.stringValue,
+              let account = args["account"]?.stringValue else {
+            return MCPToolResult(text: "Missing required: id, mailbox, account", isError: true)
+        }
+        let message = try await mailService.getMessage(id: id, mailbox: mailbox, account: account)
+        return MCPToolResult(text: try jsonString(message))
+    }
+
+    private func handleMailMailboxes(_ args: [String: JSONValue]) async throws -> MCPToolResult {
+        let mailboxes = try await mailService.mailboxes(account: args["account"]?.stringValue)
+        return MCPToolResult(text: try jsonString(mailboxes))
+    }
+
+    private func handleMailAccounts(_ args: [String: JSONValue]) async throws -> MCPToolResult {
+        let accounts = try await mailService.accounts()
+        return MCPToolResult(text: try jsonString(accounts))
+    }
+
+    // MARK: - Mail Write Handlers
+
+    private func handleMailSend(_ args: [String: JSONValue]) async throws -> MCPToolResult {
+        guard let toStr = args["to"]?.stringValue,
+              let subject = args["subject"]?.stringValue,
+              let body = args["body"]?.stringValue else {
+            return MCPToolResult(text: "Missing required: to, subject, body", isError: true)
+        }
+        let to = toStr.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        let cc = args["cc"]?.stringValue?.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } ?? []
+        let bcc = args["bcc"]?.stringValue?.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } ?? []
+        try await mailService.sendMessage(to: to, cc: cc, bcc: bcc, subject: subject, body: body, from: args["from"]?.stringValue)
+        return MCPToolResult(text: "{\"sent\": true, \"to\": \"\(toStr)\"}")
+    }
+
+    private func handleMailMarkRead(_ args: [String: JSONValue]) async throws -> MCPToolResult {
+        guard let id = args["id"]?.stringValue,
+              let mailbox = args["mailbox"]?.stringValue,
+              let account = args["account"]?.stringValue else {
+            return MCPToolResult(text: "Missing required: id, mailbox, account", isError: true)
+        }
+        try await mailService.markRead(id: id, mailbox: mailbox, account: account)
+        return MCPToolResult(text: "{\"markedRead\": true, \"id\": \"\(id)\"}")
+    }
+
+    private func handleMailMarkUnread(_ args: [String: JSONValue]) async throws -> MCPToolResult {
+        guard let id = args["id"]?.stringValue,
+              let mailbox = args["mailbox"]?.stringValue,
+              let account = args["account"]?.stringValue else {
+            return MCPToolResult(text: "Missing required: id, mailbox, account", isError: true)
+        }
+        try await mailService.markUnread(id: id, mailbox: mailbox, account: account)
+        return MCPToolResult(text: "{\"markedUnread\": true, \"id\": \"\(id)\"}")
+    }
+
+    private func handleMailMove(_ args: [String: JSONValue]) async throws -> MCPToolResult {
+        guard let id = args["id"]?.stringValue,
+              let mailbox = args["mailbox"]?.stringValue,
+              let toMailbox = args["toMailbox"]?.stringValue,
+              let account = args["account"]?.stringValue else {
+            return MCPToolResult(text: "Missing required: id, mailbox, toMailbox, account", isError: true)
+        }
+        try await mailService.moveMessage(id: id, fromMailbox: mailbox, toMailbox: toMailbox, account: account)
+        return MCPToolResult(text: "{\"moved\": true, \"id\": \"\(id)\", \"to\": \"\(toMailbox)\"}")
+    }
+
+    private func handleMailDelete(_ args: [String: JSONValue]) async throws -> MCPToolResult {
+        guard let id = args["id"]?.stringValue,
+              let mailbox = args["mailbox"]?.stringValue,
+              let account = args["account"]?.stringValue else {
+            return MCPToolResult(text: "Missing required: id, mailbox, account", isError: true)
+        }
+        try await mailService.deleteMessage(id: id, mailbox: mailbox, account: account)
+        return MCPToolResult(text: "{\"deleted\": true, \"id\": \"\(id)\"}")
+    }
+
     // MARK: - Compact MCP Serialization
     // MCP responses should be concise to avoid wasting agent context.
     // Full notes, HTML content, and calendar colors are stripped.
@@ -441,6 +557,27 @@ public final class MCPServer: @unchecked Sendable {
     private func parseFields(_ input: String?) -> Set<String> {
         guard let input else { return [] }
         return Set(input.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+    }
+
+    private func compactMessages(_ messages: [MailMessage], extraFields: Set<String> = []) throws -> String {
+        let isoFormatter = ISO8601DateFormatter()
+        let compact = messages.map { m -> [String: Any?] in
+            var dict: [String: Any?] = [
+                "id": m.id,
+                "subject": m.subject,
+                "sender": m.sender,
+                "date": isoFormatter.string(from: m.dateReceived),
+                "mailbox": m.mailbox,
+                "account": m.account,
+            ]
+            if !m.isRead { dict["unread"] = true }
+            if extraFields.contains("toRecipients") { dict["toRecipients"] = m.toRecipients }
+            if extraFields.contains("ccRecipients") { dict["ccRecipients"] = m.ccRecipients }
+            if extraFields.contains("summary") { dict["summary"] = m.summary }
+            return dict
+        }.map { dict in dict.compactMapValues { $0 } }
+        let data = try JSONSerialization.data(withJSONObject: compact, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "[]"
     }
 
     private func jsonString<T: Encodable>(_ value: T) throws -> String {

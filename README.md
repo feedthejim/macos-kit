@@ -1,8 +1,8 @@
 # mackit
 
-Native macOS data from the command line. Read and write calendars, reminders, contacts, and more using Apple's native frameworks (EventKit, Contacts) with structured JSON output. Includes an MCP server for AI agent integration.
+Native macOS data from the command line. Read and write calendars, reminders, contacts, mail, and more using Apple's native frameworks (EventKit, Contacts, ScriptingBridge) with structured JSON output. Includes an MCP server for AI agent integration.
 
-No AppleScript. No icalbuddy. Just fast, native Swift.
+No icalbuddy. Just fast, native Swift.
 
 ## Install
 
@@ -89,6 +89,42 @@ mackit contacts search "John" --phone        # Just phones
 mackit contacts birthdays --days 7
 ```
 
+### Mail
+
+```bash
+# List recent messages (default: INBOX)
+mackit mail
+mackit mail list --unread
+mackit mail list -m "Sent Mail" -a Gmail -n 5
+
+# Read a message
+mackit mail read <id> -m INBOX -a iCloud
+
+# Search
+mackit mail search "invoice"
+mackit mail search "meeting" -a Gmail -n 10
+
+# Mailboxes and accounts
+mackit mail mailboxes
+mackit mail mailboxes -a iCloud
+mackit mail accounts
+
+# Send
+mackit mail send --to bob@test.com --subject "Hello" --body "Hi Bob"
+mackit mail send --to a@test.com --cc b@test.com --subject "FYI" --body "See this"
+
+# Mark read/unread
+mackit mail mark-read <id> -a iCloud
+mackit mail mark-unread <id> -a iCloud
+
+# Move / delete
+mackit mail move <id> --to Archive -a iCloud
+mackit mail delete <id> -a iCloud --yes
+
+# JSON with field selection
+mackit mail list --json id,subject,sender,isRead
+```
+
 ### Focus / Do Not Disturb
 
 ```bash
@@ -154,6 +190,16 @@ mackit includes a built-in MCP server for AI agent integration (Claude Code, Cla
 | `reminders_move` | Move to another list |
 | `contacts_search` | Search by name, email, phone |
 | `contacts_birthdays` | Upcoming birthdays |
+| `mail_list` | List messages with filters, compact view |
+| `mail_search` | Search messages by keyword |
+| `mail_read` | Read full message content |
+| `mail_mailboxes` | List mailboxes with unread counts |
+| `mail_accounts` | List mail accounts |
+| `mail_send` | Send an email |
+| `mail_mark_read` | Mark message as read |
+| `mail_mark_unread` | Mark message as unread |
+| `mail_move` | Move message to another mailbox |
+| `mail_delete` | Delete a message |
 | `focus_status` | Check Focus/DND mode |
 | `notify_send` | Send a macOS notification |
 
@@ -175,6 +221,7 @@ mackit contacts search "John" --json givenName,emailAddresses
 | `rem`      | Reminders |
 | `contacts` | Contacts  |
 | `notify`   | Notifications |
+| `mail`     | Automation (Mail.app) |
 | `focus`    | None      |
 | `mcp`      | All (on demand) |
 
@@ -184,7 +231,7 @@ mackit contacts search "John" --json givenName,emailAddresses
 Sources/
   mackit/          # CLI commands (swift-argument-parser)
   MacKitCore/      # Library (services, models, MCP server)
-Tests/             # 202 tests across 24 suites
+Tests/             # 225 tests across 28 suites
 skills/            # Claude Code skills
 ```
 

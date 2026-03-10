@@ -7,9 +7,9 @@ struct MCPToolsTests {
 
     // MARK: - Tool Count
 
-    @Test("all 19 tools are defined")
+    @Test("all 29 tools are defined")
     func allToolsCount() {
-        #expect(MCPTools.allTools.count == 19)
+        #expect(MCPTools.allTools.count == 29)
     }
 
     // MARK: - Tool Metadata Validation
@@ -167,6 +167,8 @@ struct MCPToolsTests {
             "reminders_list", "reminders_overdue", "reminders_lists",
             "reminders_add", "reminders_complete", "reminders_delete", "reminders_move",
             "contacts_search", "contacts_birthdays",
+            "mail_list", "mail_search", "mail_read", "mail_mailboxes", "mail_accounts",
+            "mail_send", "mail_mark_read", "mail_mark_unread", "mail_move", "mail_delete",
             "focus_status", "notify_send"
         ]
         let actualNames = Set(MCPTools.allTools.map(\.name))

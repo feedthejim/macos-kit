@@ -26,6 +26,7 @@ let package = Package(
                 .linkedFramework("Contacts"),
                 .linkedFramework("AppKit"),
                 .linkedFramework("UserNotifications"),
+                .linkedFramework("ScriptingBridge"),
             ]
         ),
         .testTarget(

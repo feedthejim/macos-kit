@@ -5,6 +5,7 @@ public enum PermissionDomain: String, Sendable {
     case reminders
     case contacts
     case notifications
+    case mail
 
     public var displayName: String {
         switch self {
@@ -12,6 +13,7 @@ public enum PermissionDomain: String, Sendable {
         case .reminders: "Reminders"
         case .contacts: "Contacts"
         case .notifications: "Notifications"
+        case .mail: "Mail"
         }
     }
 
@@ -21,6 +23,7 @@ public enum PermissionDomain: String, Sendable {
         case .reminders: "Reminders"
         case .contacts: "Contacts"
         case .notifications: "Notifications"
+        case .mail: "Automation"
         }
     }
 }
@@ -33,6 +36,7 @@ public enum MacKitError: LocalizedError, Sendable, Equatable {
     case invalidDateFormat(String)
     case invalidField(name: String, available: [String])
     case invalidJQExpression(String)
+    case appNotRunning(String)
     case systemError(String)
 
     public var errorDescription: String? {
@@ -58,6 +62,8 @@ public enum MacKitError: LocalizedError, Sendable, Equatable {
             return "Unknown field '\(name)'. Available fields: \(available.joined(separator: ", "))"
         case .invalidJQExpression(let expr):
             return "Invalid jq expression: '\(expr)'"
+        case .appNotRunning(let app):
+            return "\(app) is not running and could not be launched. Open \(app) and try again."
         case .systemError(let msg):
             return msg
         }

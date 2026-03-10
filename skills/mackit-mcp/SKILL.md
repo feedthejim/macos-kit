@@ -5,7 +5,7 @@ description: Use when setting up mackit as an MCP server for Claude Code or Clau
 
 # mackit MCP Server
 
-mackit includes a built-in MCP server that exposes calendar, reminders, contacts, focus, and notifications as tools. Once configured, Claude can access your macOS data directly.
+mackit includes a built-in MCP server that exposes calendar, reminders, contacts, mail, focus, and notifications as tools. Once configured, Claude can access your macOS data directly.
 
 ## Setup
 
@@ -91,6 +91,24 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `contacts_search` | Search by name, email, phone (query, limit) |
 | `contacts_birthdays` | Upcoming birthdays (days) |
 
+### Mail (read)
+| Tool | Description |
+|------|-------------|
+| `mail_list` | List messages (mailbox, account, unreadOnly, limit, fields) |
+| `mail_search` | Search by keyword (query, mailbox, account, limit, fields) |
+| `mail_read` | Read full message (id, mailbox, account) |
+| `mail_mailboxes` | List mailboxes with counts (account) |
+| `mail_accounts` | List all mail accounts |
+
+### Mail (write)
+| Tool | Description |
+|------|-------------|
+| `mail_send` | Send email (to, subject, body, cc, bcc, from) |
+| `mail_mark_read` | Mark message as read (id, mailbox, account) |
+| `mail_mark_unread` | Mark message as unread (id, mailbox, account) |
+| `mail_move` | Move message (id, mailbox, toMailbox, account) |
+| `mail_delete` | Delete message (id, mailbox, account) |
+
 ### System
 | Tool | Description |
 |------|-------------|
@@ -99,16 +117,18 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ## Compact Responses
 
-Calendar tools return compact events by default (title, start, end, calendar, meetingURL, status). This saves context. To get additional data, use the `fields` parameter:
+Calendar and mail tools return compact views by default. This saves context. To get additional data, use the `fields` parameter:
 
 ```
 calendar_list { "from": "today", "fields": "notes,organizer" }
 calendar_next { "fields": "notes" }
+mail_list { "mailbox": "INBOX", "fields": "toRecipients,summary" }
 ```
 
-Available extra fields: `notes`, `organizer`, `calendarColor`, `url`
+Calendar extra fields: `notes`, `organizer`, `calendarColor`, `url`
+Mail extra fields: `toRecipients`, `ccRecipients`, `summary`
 
-Status is always included: `confirmed`, `tentative`, `cancelled`, `none`.
+Status is always included for calendar: `confirmed`, `tentative`, `cancelled`, `none`.
 
 ## Permissions
 

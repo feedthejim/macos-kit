@@ -162,6 +162,106 @@ public enum MCPTools: Sendable {
                 "days": prop(.integer, "Days ahead to search (default: 30)"),
             ])
         ),
+        // Mail read
+        MCPToolDefinition(
+            name: "mail_list",
+            description: "List recent mail messages. Returns compact view (subject, sender, date, read status). Use 'fields' to request extra data. Requires Mail.app.",
+            inputSchema: schema(properties: [
+                "mailbox": prop(.string, "Mailbox name (default: INBOX)"),
+                "account": prop(.string, "Mail account name"),
+                "unreadOnly": prop(.boolean, "Only show unread messages"),
+                "limit": prop(.integer, "Max messages to return (default: 25)"),
+                "fields": prop(.string, "Comma-separated extra fields: toRecipients, ccRecipients, summary"),
+            ])
+        ),
+        MCPToolDefinition(
+            name: "mail_search",
+            description: "Search mail messages by keyword in subject and sender. Use 'fields' to request extra data.",
+            inputSchema: schema(properties: [
+                "query": prop(.string, "Search query"),
+                "mailbox": prop(.string, "Mailbox name to search in"),
+                "account": prop(.string, "Account name"),
+                "limit": prop(.integer, "Max results (default: 25)"),
+                "fields": prop(.string, "Comma-separated extra fields: toRecipients, ccRecipients, summary"),
+            ], required: ["query"])
+        ),
+        MCPToolDefinition(
+            name: "mail_read",
+            description: "Read full content of a specific mail message by ID.",
+            inputSchema: schema(properties: [
+                "id": prop(.string, "Message ID"),
+                "mailbox": prop(.string, "Mailbox containing the message"),
+                "account": prop(.string, "Account name"),
+            ], required: ["id", "mailbox", "account"])
+        ),
+        MCPToolDefinition(
+            name: "mail_mailboxes",
+            description: "List all mailboxes with unread and total message counts.",
+            inputSchema: schema(properties: [
+                "account": prop(.string, "Filter by account name"),
+            ])
+        ),
+        MCPToolDefinition(
+            name: "mail_accounts",
+            description: "List all configured mail accounts.",
+            inputSchema: schema(properties: [:])
+        ),
+        // Mail write
+        MCPToolDefinition(
+            name: "mail_send",
+            description: "Send an email via Mail.app.",
+            inputSchema: schema(
+                properties: [
+                    "to": prop(.string, "Recipient email address(es), comma-separated"),
+                    "subject": prop(.string, "Email subject"),
+                    "body": prop(.string, "Email body (plain text)"),
+                    "cc": prop(.string, "CC recipients, comma-separated"),
+                    "bcc": prop(.string, "BCC recipients, comma-separated"),
+                    "from": prop(.string, "Send from specific account"),
+                ],
+                required: ["to", "subject", "body"]
+            )
+        ),
+        MCPToolDefinition(
+            name: "mail_mark_read",
+            description: "Mark a mail message as read.",
+            inputSchema: schema(properties: [
+                "id": prop(.string, "Message ID"),
+                "mailbox": prop(.string, "Mailbox name"),
+                "account": prop(.string, "Account name"),
+            ], required: ["id", "mailbox", "account"])
+        ),
+        MCPToolDefinition(
+            name: "mail_mark_unread",
+            description: "Mark a mail message as unread.",
+            inputSchema: schema(properties: [
+                "id": prop(.string, "Message ID"),
+                "mailbox": prop(.string, "Mailbox name"),
+                "account": prop(.string, "Account name"),
+            ], required: ["id", "mailbox", "account"])
+        ),
+        MCPToolDefinition(
+            name: "mail_move",
+            description: "Move a mail message to a different mailbox.",
+            inputSchema: schema(
+                properties: [
+                    "id": prop(.string, "Message ID"),
+                    "mailbox": prop(.string, "Source mailbox"),
+                    "toMailbox": prop(.string, "Destination mailbox"),
+                    "account": prop(.string, "Account name"),
+                ],
+                required: ["id", "mailbox", "toMailbox", "account"]
+            )
+        ),
+        MCPToolDefinition(
+            name: "mail_delete",
+            description: "Delete a mail message.",
+            inputSchema: schema(properties: [
+                "id": prop(.string, "Message ID"),
+                "mailbox": prop(.string, "Mailbox name"),
+                "account": prop(.string, "Account name"),
+            ], required: ["id", "mailbox", "account"])
+        ),
         // System
         MCPToolDefinition(
             name: "focus_status",
