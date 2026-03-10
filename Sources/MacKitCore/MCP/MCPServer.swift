@@ -18,13 +18,18 @@ public final class MCPServer: @unchecked Sendable {
     public init() {}
 
     public func run() async throws {
-        // Read line by line from stdin
         while let line = readLine(strippingNewline: true) {
             guard !line.isEmpty else { continue }
             guard let data = line.data(using: .utf8) else { continue }
 
             do {
                 let request = try JSONRPCRequest(from: data)
+
+                // Notifications (no id) get no response per JSON-RPC spec
+                if request.method.hasPrefix("notifications/") {
+                    continue
+                }
+
                 let response = await handleRequest(request)
                 let responseData = try response.serialize()
                 FileHandle.standardOutput.write(responseData)
@@ -47,10 +52,6 @@ public final class MCPServer: @unchecked Sendable {
                 "capabilities": ["tools": [String: Any]()],
                 "serverInfo": ["name": "mackit", "version": "0.1.0"],
             ] as [String: Any])
-
-        case "notifications/initialized":
-            // No response needed for notifications, but we still return empty
-            return JSONRPCResponse(id: request.id, result: [String: Any]())
 
         case "tools/list":
             let tools = MCPTools.allTools.map { $0.toDict() }

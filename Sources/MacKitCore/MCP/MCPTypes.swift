@@ -70,14 +70,20 @@ public enum JSONValue: Sendable {
     case null
 
     public init(from any: Any) {
+        // Order matters: NSNumber bridges to both Bool and Int/Double in Swift.
+        // Check String first, then use CFBooleanGetTypeID to distinguish real bools
+        // from numeric NSNumbers before checking Int/Double.
         switch any {
         case let s as String: self = .string(s)
-        case let b as Bool: self = .bool(b)
+        case let n as NSNumber where CFGetTypeID(n) == CFBooleanGetTypeID():
+            self = .bool(n.boolValue)
         case let i as Int: self = .int(i)
         case let d as Double: self = .double(d)
         case let a as [Any]: self = .array(a.map { JSONValue(from: $0) })
         case let o as [String: Any]: self = .object(o.mapValues { JSONValue(from: $0) })
-        default: self = .null
+        default:
+            if let n = any as? NSNumber { self = .int(n.intValue) }
+            else { self = .null }
         }
     }
 
