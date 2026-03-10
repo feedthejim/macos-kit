@@ -6,6 +6,11 @@ No AppleScript. No icalbuddy. Just fast, native Swift.
 
 ## Install
 
+**One-liner:**
+```bash
+curl -fsSL https://github.com/feedthejim/macos-kit/releases/latest/download/mackit-macos-universal.tar.gz | tar xz -C /usr/local/bin
+```
+
 **Homebrew:**
 ```bash
 brew install feedthejim/tap/mackit
@@ -13,10 +18,7 @@ brew install feedthejim/tap/mackit
 
 **From source:**
 ```bash
-git clone https://github.com/feedthejim/macos-kit.git
-cd macos-kit
-swift build -c release
-cp .build/release/mackit /usr/local/bin/
+git clone https://github.com/feedthejim/macos-kit.git && cd macos-kit && swift build -c release && cp .build/release/mackit /usr/local/bin/
 ```
 
 ## Usage
@@ -126,6 +128,25 @@ Invalid field names show available options:
 Error: Unknown field 'foo'. Available fields: calendarName, endDate, id, ...
 ```
 
+## Claude Code Skills
+
+mackit ships with [Claude Code](https://claude.ai/claude-code) skills so Claude can use your calendar, reminders, and contacts natively. Install them:
+
+```bash
+# From the mackit repo
+ln -s $(pwd)/skills/mackit-calendar ~/.claude/skills/mackit-calendar
+ln -s $(pwd)/skills/mackit-reminders ~/.claude/skills/mackit-reminders
+ln -s $(pwd)/skills/mackit-contacts ~/.claude/skills/mackit-contacts
+ln -s $(pwd)/skills/mackit-focus ~/.claude/skills/mackit-focus
+```
+
+Once installed, Claude can answer questions like:
+- "What's on my calendar today?"
+- "Am I free at 3pm tomorrow?"
+- "What's John's email?"
+- "What reminders are overdue?"
+- "Open my next meeting"
+
 ## Permissions
 
 mackit uses native Apple frameworks that require permission on first use. A system dialog will appear automatically. If denied, you'll see:
@@ -151,6 +172,7 @@ Sources/
   MacKitCore/      # Library (services, models, output rendering)
 Tests/
   MacKitCoreTests/ # 120 tests across 14 suites
+skills/            # Claude Code skills
 ```
 
 Every Apple framework call is behind a protocol, making the library fully testable with mocks. `MacKitCore` can be imported as a library in other Swift projects.
