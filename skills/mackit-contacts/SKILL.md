@@ -71,6 +71,6 @@ mackit contacts search "John" --format text
 | `--phone` | | Output only phone numbers (one per line) |
 | `--org NAME` | | Filter by organization |
 | `--days N` | | (birthdays) Days ahead to search (default: 30) |
-| `--limit N` | `-n` | Max results |
+| `--limit N` | `-l` | Max results |
 | `--format FMT` | | json, text, or table |
 | `--json FIELDS` | | Comma-separated field names |

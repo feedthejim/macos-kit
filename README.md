@@ -140,12 +140,14 @@ mackit includes a built-in MCP server for AI agent integration (Claude Code, Cla
 | `calendar_list` | List events with date range, calendar filter |
 | `calendar_next` | Next upcoming event with meeting URL |
 | `calendar_free` | Free time slots for scheduling |
+| `calendar_calendars` | List all calendars |
 | `calendar_create` | Create a calendar event |
 | `calendar_delete` | Delete an event |
 | `calendar_update` | Update event fields |
 | `calendar_move` | Reschedule an event |
 | `reminders_list` | List reminders by list, status, due date |
 | `reminders_overdue` | All overdue reminders |
+| `reminders_lists` | List all reminder lists with counts |
 | `reminders_add` | Create a reminder |
 | `reminders_complete` | Complete by title match or ID |
 | `reminders_delete` | Delete a reminder |
@@ -182,7 +184,7 @@ mackit contacts search "John" --json givenName,emailAddresses
 Sources/
   mackit/          # CLI commands (swift-argument-parser)
   MacKitCore/      # Library (services, models, MCP server)
-Tests/             # 147 tests across 16 suites
+Tests/             # 202 tests across 24 suites
 skills/            # Claude Code skills
 ```
 

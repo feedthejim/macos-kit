@@ -156,7 +156,7 @@ mackit cal --json title,startDate,endDate,meetingURL
 | `--from DATE` | | Start date (ISO 8601, today, tomorrow, monday, "next week") |
 | `--to DATE` | | End date |
 | `--calendar NAME` | `-c` | Filter by calendar (repeatable) |
-| `--limit N` | `-n` | Max events |
+| `--limit N` | `-l` | Max events |
 | `--include-past` | | Show past events today |
 | `--format FMT` | | json, text, or table |
 | `--json FIELDS` | | Comma-separated field names |

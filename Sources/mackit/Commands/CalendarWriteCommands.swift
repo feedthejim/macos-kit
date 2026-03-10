@@ -25,8 +25,8 @@ extension CalendarCommand {
         @OptionGroup var globals: GlobalOptions
         @Argument(help: "Event title") var title: String
         @Option(name: .long, help: "Date: YYYY-MM-DD, 'today', 'tomorrow', day name (default: today)") var date: String = "today"
-        @Option(name: .long, help: "Start time: 3pm, 9:30am, 14:30 (required unless --all-day)") var from: String
-        @Option(name: .long, help: "End time (same formats as --from)") var to: String
+        @Option(name: .long, help: "Start time: 3pm, 9:30am, 14:30 (required unless --all-day)") var from: String?
+        @Option(name: .long, help: "End time (same formats as --from)") var to: String?
         @Option(name: [.short, .customLong("calendar")], help: "Calendar name (default: system default calendar)") var calendarName: String?
         @Option(name: .long, help: "Event location") var location: String?
         @Option(name: .long, help: "Event notes") var notes: String?
@@ -34,8 +34,11 @@ extension CalendarCommand {
         @Flag(name: .customLong("dry-run"), help: "Preview the event without creating it") var dryRun: Bool = false
 
         func run() async throws {
-            let startDate = try DateParsing.parseDateTime(date, time: allDay ? "9am" : from)
-            let endDate = try DateParsing.parseDateTime(date, time: allDay ? "5pm" : to)
+            if !allDay && (from == nil || to == nil) {
+                throw ValidationError("--from and --to are required (unless --all-day is used)")
+            }
+            let startDate = try DateParsing.parseDateTime(date, time: allDay ? "9am" : from!)
+            let endDate = try DateParsing.parseDateTime(date, time: allDay ? "5pm" : to!)
 
             if dryRun {
                 let preview = CalendarEvent(id: "(preview)", title: title, startDate: startDate,
