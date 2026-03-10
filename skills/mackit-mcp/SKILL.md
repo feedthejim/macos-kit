@@ -57,8 +57,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ### Calendar (read)
 | Tool | Description |
 |------|-------------|
-| `calendar_list` | List events (from, to, calendar, limit, includePast) |
-| `calendar_next` | Next upcoming event with meeting URL |
+| `calendar_list` | List events (from, to, calendar, limit, includePast, fields) |
+| `calendar_next` | Next upcoming event with meeting URL (fields) |
 | `calendar_free` | Free time slots (date, minDuration in minutes) |
 | `calendar_calendars` | All calendars with names and colors |
 
@@ -96,6 +96,19 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 |------|-------------|
 | `focus_status` | Check Focus/DND mode |
 | `notify_send` | Send macOS notification (title, body, subtitle, sound) |
+
+## Compact Responses
+
+Calendar tools return compact events by default (title, start, end, calendar, meetingURL, status). This saves context. To get additional data, use the `fields` parameter:
+
+```
+calendar_list { "from": "today", "fields": "notes,organizer" }
+calendar_next { "fields": "notes" }
+```
+
+Available extra fields: `notes`, `organizer`, `calendarColor`, `url`
+
+Status is always included: `confirmed`, `tentative`, `cancelled`, `none`.
 
 ## Permissions
 
