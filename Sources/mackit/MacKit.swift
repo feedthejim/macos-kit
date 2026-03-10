@@ -14,6 +14,7 @@ struct MacKit: AsyncParsableCommand {
             FocusCommand.self,
             NotifyCommand.self,
             MCPCommand.self,
+            CompletionsCommand.self,
         ]
     )
 }

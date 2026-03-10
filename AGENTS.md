@@ -14,18 +14,26 @@ Two-target design:
 
 Key patterns:
 - **Protocol-based services**: `CalendarServiceProtocol` + `LiveCalendarService` + `MockCalendarService`
+- **EventKitMapper**: Shared mapping from EKEvent to CalendarEvent, used by both read and write services
+- **FreeSlotCalculator**: Shared free time slot logic used by CLI and MCP server
 - **Sendable models**: Map non-Sendable Apple types (EKReminder, CNContact) to Sendable structs inside closures before crossing async boundaries
 - **`@preconcurrency import EventKit`**: Required for reminder fetch callbacks in Swift 6
 - **Output auto-detection**: `isatty(STDOUT_FILENO)` chooses text vs JSON
 - **FieldSelectable protocol**: Static `availableFields` list for `--json` field validation (avoids optional-nil-key problem)
+- **MCP server reuses services**: Single instance per service type, not per tool call
 
 ## Build & Test
 
 ```bash
 swift build              # Debug build
 swift build -c release   # Release build
-swift test               # Run all 147 tests (no TCC permissions needed)
+swift test               # Run all 202 tests (no TCC permissions needed)
 mackit --version         # Verify installed binary
+
+# Shell completions
+mackit completions zsh > ~/.zfunc/_mackit
+mackit completions bash > /usr/local/etc/bash_completion.d/mackit
+mackit completions fish > ~/.config/fish/completions/mackit.fish
 ```
 
 Tests use mocks exclusively. No calendar/contacts/reminders access needed in CI.

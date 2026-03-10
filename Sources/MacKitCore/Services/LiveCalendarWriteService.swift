@@ -44,13 +44,8 @@ public final class LiveCalendarWriteService: CalendarWriteServiceProtocol, @unch
             ekEvent.calendar = store.defaultCalendarForNewEvents
         }
 
-        if !request.attendeeEmails.isEmpty {
-            // EKEvent does not support setting attendees directly via public API.
-            // Attendees are managed by the calendar server.
-        }
-
         try store.save(ekEvent, span: .thisEvent)
-        return mapEvent(ekEvent)
+        return EventKitMapper.mapEvent(ekEvent)
     }
 
     public func deleteEvent(id: String) async throws {
@@ -65,70 +60,20 @@ public final class LiveCalendarWriteService: CalendarWriteServiceProtocol, @unch
             throw MacKitError.notFound("Event with id '\(request.eventId)'")
         }
 
-        if let title = request.title {
-            ekEvent.title = title
-        }
-        if let startDate = request.startDate {
-            ekEvent.startDate = startDate
-        }
-        if let endDate = request.endDate {
-            ekEvent.endDate = endDate
-        }
-        if let location = request.location {
-            ekEvent.location = location
-        }
-        if let notes = request.notes {
-            ekEvent.notes = notes
-        }
+        if let title = request.title { ekEvent.title = title }
+        if let startDate = request.startDate { ekEvent.startDate = startDate }
+        if let endDate = request.endDate { ekEvent.endDate = endDate }
+        if let location = request.location { ekEvent.location = location }
+        if let notes = request.notes { ekEvent.notes = notes }
 
         try store.save(ekEvent, span: .thisEvent)
-        return mapEvent(ekEvent)
+        return EventKitMapper.mapEvent(ekEvent)
     }
 
     public func findEvent(id: String) async throws -> CalendarEvent {
         guard let ekEvent = store.event(withIdentifier: id) else {
             throw MacKitError.notFound("Event with id '\(id)'")
         }
-        return mapEvent(ekEvent)
-    }
-
-    private func mapEvent(_ ekEvent: EKEvent) -> CalendarEvent {
-        let meetingURL = MeetingURLExtractor.extract(
-            fromLocation: ekEvent.location,
-            notes: ekEvent.notes,
-            url: ekEvent.url?.absoluteString
-        )
-
-        let status: EventStatus
-        switch ekEvent.status {
-        case .confirmed: status = .confirmed
-        case .tentative: status = .tentative
-        case .canceled: status = .cancelled
-        default: status = .none
-        }
-
-        return CalendarEvent(
-            id: ekEvent.eventIdentifier ?? UUID().uuidString,
-            title: ekEvent.title ?? "(No title)",
-            startDate: ekEvent.startDate,
-            endDate: ekEvent.endDate,
-            isAllDay: ekEvent.isAllDay,
-            location: ekEvent.location,
-            calendarName: ekEvent.calendar.title,
-            calendarColor: ekEvent.calendar.cgColor.flatMap { hexColor(from: $0) },
-            status: status,
-            organizer: ekEvent.organizer?.name,
-            notes: ekEvent.notes,
-            url: ekEvent.url?.absoluteString,
-            meetingURL: meetingURL
-        )
-    }
-
-    private func hexColor(from cgColor: CGColor) -> String? {
-        guard let components = cgColor.components, components.count >= 3 else { return nil }
-        let r = Int(components[0] * 255)
-        let g = Int(components[1] * 255)
-        let b = Int(components[2] * 255)
-        return String(format: "#%02X%02X%02X", r, g, b)
+        return EventKitMapper.mapEvent(ekEvent)
     }
 }

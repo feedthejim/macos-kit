@@ -137,24 +137,52 @@ extension CalendarCommand {
                 let fields = jsonFields.split(separator: ",").map(String.init)
                 let result = try FieldSelection.select(fields: fields, from: events)
                 print(result)
-            } else {
-                switch globals.effectiveFormat {
-                case .json:
-                    print(try OutputRenderer.renderJSON(events))
-                case .text:
-                    if events.isEmpty {
-                        print("No events")
-                    } else {
-                        print(OutputRenderer.renderText(events, emptyMessage: "No events"))
-                        let totalMinutes = events.reduce(0) { sum, e in
-                            sum + Int(e.endDate.timeIntervalSince(e.startDate) / 60)
-                        }
-                        print("\n\(events.count) event\(events.count == 1 ? "" : "s"), \(DurationFormatter.format(minutes: totalMinutes)) of meetings")
-                    }
-                case .table:
-                    print(OutputRenderer.renderTable(events, emptyMessage: "No events"))
-                }
+                return
             }
+
+            switch globals.effectiveFormat {
+            case .json:
+                print(try OutputRenderer.renderJSON(events))
+            case .text:
+                if shortcut?.lowercased() == "week" {
+                    printWeekSummary(events)
+                } else if events.isEmpty {
+                    print("No events")
+                } else {
+                    print(OutputRenderer.renderText(events, emptyMessage: "No events"))
+                    let totalMinutes = events.reduce(0) { sum, e in
+                        sum + Int(e.endDate.timeIntervalSince(e.startDate) / 60)
+                    }
+                    print("\n\(events.count) event\(events.count == 1 ? "" : "s"), \(DurationFormatter.format(minutes: totalMinutes)) of meetings")
+                }
+            case .table:
+                print(OutputRenderer.renderTable(events, emptyMessage: "No events"))
+            }
+        }
+
+        private func printWeekSummary(_ events: [CalendarEvent]) {
+            let cal = Calendar.current
+            var totalEvents = 0
+            var totalMinutes = 0
+
+            for dayOffset in 0..<7 {
+                let dayStart = cal.startOfDay(for: cal.date(byAdding: .day, value: dayOffset, to: Date())!)
+                let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart)!
+                let dayEvents = events.filter { $0.startDate >= dayStart && $0.startDate < dayEnd && !$0.isAllDay }
+                let dayMinutes = dayEvents.reduce(0) { $0 + Int($1.endDate.timeIntervalSince($1.startDate) / 60) }
+
+                let dayName = dayStart.formatted(.dateTime.weekday(.wide))
+                let dayDate = dayStart.formatted(.dateTime.month(.abbreviated).day())
+                let countStr = dayEvents.isEmpty ? "no events" : "\(dayEvents.count) event\(dayEvents.count == 1 ? "" : "s")"
+                let durationStr = dayMinutes > 0 ? "   \(DurationFormatter.format(minutes: dayMinutes))" : ""
+
+                print("  \(dayName.padding(toLength: 12, withPad: " ", startingAt: 0))\(dayDate.padding(toLength: 8, withPad: " ", startingAt: 0))\(countStr)\(durationStr)")
+
+                totalEvents += dayEvents.count
+                totalMinutes += dayMinutes
+            }
+
+            print("\nTotal: \(totalEvents) event\(totalEvents == 1 ? "" : "s"), \(DurationFormatter.format(minutes: totalMinutes)) of meetings")
         }
     }
 
@@ -256,75 +284,34 @@ extension CalendarCommand {
             }
 
             let events = try await service.events(from: dayStart, to: rangeEnd, calendars: nil)
-                .filter { !$0.isAllDay }
-                .sorted { $0.startDate < $1.startDate }
-
-            let slots = calculateFreeSlots(events: events, rangeStart: rangeStart, rangeEnd: rangeEnd)
-
-            let minMinutes = parseDuration(duration)
-            let filteredSlots = slots.filter { $0.duration >= minMinutes }
+            let minMinutes = FreeSlotCalculator.parseDuration(duration)
+            let slots = FreeSlotCalculator.calculate(
+                events: events, rangeStart: rangeStart, rangeEnd: rangeEnd,
+                minDurationMinutes: minMinutes
+            )
 
             if globals.effectiveFormat == .json {
-                let jsonSlots = filteredSlots.map { [
+                let jsonSlots = slots.map { [
                     "start": ISO8601DateFormatter().string(from: $0.start),
                     "end": ISO8601DateFormatter().string(from: $0.end),
-                    "duration": DurationFormatter.format(minutes: $0.duration),
+                    "duration": DurationFormatter.format(minutes: $0.durationMinutes),
                 ] }
                 print(try OutputRenderer.renderJSON(jsonSlots))
             } else {
-                if filteredSlots.isEmpty {
+                if slots.isEmpty {
                     print("No free slots\(minMinutes > 0 ? " >= \(DurationFormatter.format(minutes: minMinutes))" : "")")
                 } else {
                     let isToday = calendar.isDateInToday(targetDate)
                     print("Free slots \(isToday ? "today (remaining)" : targetDate.formatted(date: .abbreviated, time: .omitted)):")
-                    for slot in filteredSlots {
+                    for slot in slots {
                         let startStr = slot.start.formatted(date: .omitted, time: .shortened)
                         let endStr = slot.end.formatted(date: .omitted, time: .shortened)
-                        print("  \(startStr) – \(endStr)   \(DurationFormatter.format(minutes: slot.duration))")
+                        print("  \(startStr) – \(endStr)   \(DurationFormatter.format(minutes: slot.durationMinutes))")
                     }
-                    let totalMinutes = filteredSlots.reduce(0) { $0 + $1.duration }
+                    let totalMinutes = slots.reduce(0) { $0 + $1.durationMinutes }
                     print("\nTotal: \(DurationFormatter.format(minutes: totalMinutes)) free")
                 }
             }
-        }
-
-        struct FreeSlot {
-            let start: Date
-            let end: Date
-            var duration: Int { Int(end.timeIntervalSince(start) / 60) }
-        }
-
-        func calculateFreeSlots(events: [CalendarEvent], rangeStart: Date, rangeEnd: Date) -> [FreeSlot] {
-            var slots: [FreeSlot] = []
-            var cursor = rangeStart
-
-            for event in events {
-                let eventStart = max(event.startDate, rangeStart)
-                let eventEnd = min(event.endDate, rangeEnd)
-
-                if eventStart > cursor {
-                    slots.append(FreeSlot(start: cursor, end: eventStart))
-                }
-                cursor = max(cursor, eventEnd)
-            }
-
-            if cursor < rangeEnd {
-                slots.append(FreeSlot(start: cursor, end: rangeEnd))
-            }
-
-            return slots
-        }
-
-        func parseDuration(_ input: String?) -> Int {
-            guard let input else { return 0 }
-            let trimmed = input.lowercased().trimmingCharacters(in: .whitespaces)
-            if trimmed.hasSuffix("h") {
-                return (Int(trimmed.dropLast()) ?? 0) * 60
-            }
-            if trimmed.hasSuffix("m") {
-                return Int(trimmed.dropLast()) ?? 0
-            }
-            return Int(trimmed) ?? 0
         }
     }
 

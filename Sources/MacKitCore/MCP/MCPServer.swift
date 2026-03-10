@@ -8,6 +8,13 @@ public final class MCPServer: @unchecked Sendable {
         return e
     }()
 
+    // Reuse service instances across tool calls
+    private let calendarService = LiveCalendarService()
+    private let calendarWriteService = LiveCalendarWriteService()
+    private let remindersService = LiveRemindersService()
+    private let remindersWriteService = LiveRemindersWriteService()
+    private let contactsService = LiveContactsService()
+
     public init() {}
 
     public func run() async throws {
@@ -120,8 +127,7 @@ public final class MCPServer: @unchecked Sendable {
     // MARK: - Calendar Read Handlers
 
     private func handleCalendarList(_ args: [String: JSONValue]) async throws -> MCPToolResult {
-        let service = LiveCalendarService()
-        try await service.requestAccess()
+        try await calendarService.requestAccess()
 
         let calendar = Calendar.current
         let fromStr = args["from"]?.stringValue ?? "today"
@@ -134,7 +140,7 @@ public final class MCPServer: @unchecked Sendable {
         }
 
         let calFilter = args["calendar"]?.stringValue.map { [$0] }
-        var events = try await service.events(from: startDate, to: endDate, calendars: calFilter)
+        var events = try await calendarService.events(from: startDate, to: endDate, calendars: calFilter)
 
         let includePast = args["includePast"]?.boolValue ?? false
         if !includePast && calendar.isDateInToday(startDate) {
@@ -149,17 +155,15 @@ public final class MCPServer: @unchecked Sendable {
     }
 
     private func handleCalendarNext(_ args: [String: JSONValue]) async throws -> MCPToolResult {
-        let service = LiveCalendarService()
-        try await service.requestAccess()
-        guard let event = try await service.nextEvent() else {
+        try await calendarService.requestAccess()
+        guard let event = try await calendarService.nextEvent() else {
             return MCPToolResult(text: "No upcoming events")
         }
         return MCPToolResult(text: try jsonString(event))
     }
 
     private func handleCalendarFree(_ args: [String: JSONValue]) async throws -> MCPToolResult {
-        let service = LiveCalendarService()
-        try await service.requestAccess()
+        try await calendarService.requestAccess()
 
         let cal = Calendar.current
         let dateStr = args["date"]?.stringValue ?? "today"
@@ -172,57 +176,34 @@ public final class MCPServer: @unchecked Sendable {
             return MCPToolResult(text: "No working hours remaining")
         }
 
-        let events = try await service.events(from: dayStart, to: rangeEnd, calendars: nil)
-            .filter { !$0.isAllDay }
-            .sorted { $0.startDate < $1.startDate }
-
+        let events = try await calendarService.events(from: dayStart, to: rangeEnd, calendars: nil)
         let minDuration = args["minDuration"]?.intValue ?? 0
-        var slots: [[String: Any]] = []
-        var cursor = rangeStart
+        let slots = FreeSlotCalculator.calculate(
+            events: events, rangeStart: rangeStart, rangeEnd: rangeEnd,
+            minDurationMinutes: minDuration
+        )
 
-        for event in events {
-            let eventStart = max(event.startDate, rangeStart)
-            let eventEnd = min(event.endDate, rangeEnd)
-            if eventStart > cursor {
-                let duration = Int(eventStart.timeIntervalSince(cursor) / 60)
-                if duration >= minDuration {
-                    slots.append([
-                        "start": ISO8601DateFormatter().string(from: cursor),
-                        "end": ISO8601DateFormatter().string(from: eventStart),
-                        "durationMinutes": duration,
-                        "duration": DurationFormatter.format(minutes: duration),
-                    ])
-                }
-            }
-            cursor = max(cursor, eventEnd)
-        }
-        if cursor < rangeEnd {
-            let duration = Int(rangeEnd.timeIntervalSince(cursor) / 60)
-            if duration >= minDuration {
-                slots.append([
-                    "start": ISO8601DateFormatter().string(from: cursor),
-                    "end": ISO8601DateFormatter().string(from: rangeEnd),
-                    "durationMinutes": duration,
-                    "duration": DurationFormatter.format(minutes: duration),
-                ])
-            }
-        }
+        let jsonSlots = slots.map { [
+            "start": ISO8601DateFormatter().string(from: $0.start),
+            "end": ISO8601DateFormatter().string(from: $0.end),
+            "durationMinutes": $0.durationMinutes,
+            "duration": DurationFormatter.format(minutes: $0.durationMinutes),
+        ] as [String: Any] }
 
-        let data = try JSONSerialization.data(withJSONObject: slots, options: [.sortedKeys])
+        let data = try JSONSerialization.data(withJSONObject: jsonSlots, options: [.sortedKeys])
         return MCPToolResult(text: String(data: data, encoding: .utf8)!)
     }
 
     private func handleCalendarCalendars(_ args: [String: JSONValue]) async throws -> MCPToolResult {
-        let service = LiveCalendarService()
-        try await service.requestAccess()
-        let calendars = try await service.calendars()
+        try await calendarService.requestAccess()
+        let calendars = try await calendarService.calendars()
         return MCPToolResult(text: try jsonString(calendars))
     }
 
     // MARK: - Calendar Write Handlers
 
     private func handleCalendarCreate(_ args: [String: JSONValue]) async throws -> MCPToolResult {
-        let service = LiveCalendarWriteService()
+        let service = calendarWriteService
         guard let title = args["title"]?.stringValue,
               let dateStr = args["date"]?.stringValue,
               let startTimeStr = args["startTime"]?.stringValue,
@@ -250,7 +231,7 @@ public final class MCPServer: @unchecked Sendable {
         guard let eventId = args["eventId"]?.stringValue else {
             return MCPToolResult(text: "Missing required: eventId", isError: true)
         }
-        let service = LiveCalendarWriteService()
+        let service = calendarWriteService
         try await service.deleteEvent(id: eventId)
         return MCPToolResult(text: "{\"deleted\": true, \"eventId\": \"\(eventId)\"}")
     }
@@ -259,7 +240,7 @@ public final class MCPServer: @unchecked Sendable {
         guard let eventId = args["eventId"]?.stringValue else {
             return MCPToolResult(text: "Missing required: eventId", isError: true)
         }
-        let service = LiveCalendarWriteService()
+        let service = calendarWriteService
         let request = UpdateEventRequest(
             eventId: eventId,
             title: args["title"]?.stringValue,
@@ -275,7 +256,7 @@ public final class MCPServer: @unchecked Sendable {
             return MCPToolResult(text: "Missing required: eventId", isError: true)
         }
 
-        let service = LiveCalendarWriteService()
+        let service = calendarWriteService
         let existing = try await service.findEvent(id: eventId)
 
         var newStart = existing.startDate
@@ -309,10 +290,9 @@ public final class MCPServer: @unchecked Sendable {
     // MARK: - Reminders Read Handlers
 
     private func handleRemindersList(_ args: [String: JSONValue]) async throws -> MCPToolResult {
-        let service = LiveRemindersService()
-        try await service.requestAccess()
+        try await remindersService.requestAccess()
         let dueBefore: Date? = try args["due"]?.stringValue.map { try DateParsing.parse($0) }
-        let reminders = try await service.reminders(
+        let reminders = try await remindersService.reminders(
             inList: args["list"]?.stringValue,
             includeCompleted: args["includeCompleted"]?.boolValue ?? false,
             dueBefore: dueBefore
@@ -322,16 +302,14 @@ public final class MCPServer: @unchecked Sendable {
     }
 
     private func handleRemindersOverdue(_ args: [String: JSONValue]) async throws -> MCPToolResult {
-        let service = LiveRemindersService()
-        try await service.requestAccess()
-        let reminders = try await service.overdueReminders()
+        try await remindersService.requestAccess()
+        let reminders = try await remindersService.overdueReminders()
         return MCPToolResult(text: try jsonString(reminders))
     }
 
     private func handleRemindersLists(_ args: [String: JSONValue]) async throws -> MCPToolResult {
-        let service = LiveRemindersService()
-        try await service.requestAccess()
-        let lists = try await service.lists()
+        try await remindersService.requestAccess()
+        let lists = try await remindersService.lists()
         return MCPToolResult(text: try jsonString(lists))
     }
 
@@ -341,7 +319,7 @@ public final class MCPServer: @unchecked Sendable {
         guard let title = args["title"]?.stringValue else {
             return MCPToolResult(text: "Missing required: title", isError: true)
         }
-        let service = LiveRemindersWriteService()
+        let service = remindersWriteService
         let dueDate: Date? = try args["due"]?.stringValue.map { try DateParsing.parse($0) }
         let priority: ReminderPriority = switch args["priority"]?.stringValue {
         case "high": .high; case "medium": .medium; case "low": .low
@@ -355,7 +333,7 @@ public final class MCPServer: @unchecked Sendable {
     }
 
     private func handleRemindersComplete(_ args: [String: JSONValue]) async throws -> MCPToolResult {
-        let service = LiveRemindersWriteService()
+        let service = remindersWriteService
         if let id = args["id"]?.stringValue {
             let reminder = try await service.completeReminderById(id: id)
             return MCPToolResult(text: try jsonString(reminder))
@@ -370,7 +348,7 @@ public final class MCPServer: @unchecked Sendable {
         guard let id = args["id"]?.stringValue else {
             return MCPToolResult(text: "Missing required: id", isError: true)
         }
-        let service = LiveRemindersWriteService()
+        let service = remindersWriteService
         try await service.deleteReminder(id: id)
         return MCPToolResult(text: "{\"deleted\": true, \"id\": \"\(id)\"}")
     }
@@ -379,7 +357,7 @@ public final class MCPServer: @unchecked Sendable {
         guard let title = args["title"]?.stringValue, let toList = args["toList"]?.stringValue else {
             return MCPToolResult(text: "Missing required: title, toList", isError: true)
         }
-        let service = LiveRemindersWriteService()
+        let service = remindersWriteService
         let reminder = try await service.moveReminder(titleMatch: title, toList: toList)
         return MCPToolResult(text: try jsonString(reminder))
     }
@@ -390,16 +368,14 @@ public final class MCPServer: @unchecked Sendable {
         guard let query = args["query"]?.stringValue else {
             return MCPToolResult(text: "Missing required: query", isError: true)
         }
-        let service = LiveContactsService()
-        try await service.requestAccess()
-        let contacts = try await service.search(query: query, limit: args["limit"]?.intValue)
+        try await contactsService.requestAccess()
+        let contacts = try await contactsService.search(query: query, limit: args["limit"]?.intValue)
         return MCPToolResult(text: try jsonString(contacts))
     }
 
     private func handleContactsBirthdays(_ args: [String: JSONValue]) async throws -> MCPToolResult {
-        let service = LiveContactsService()
-        try await service.requestAccess()
-        let contacts = try await service.upcomingBirthdays(withinDays: args["days"]?.intValue ?? 30)
+        try await contactsService.requestAccess()
+        let contacts = try await contactsService.upcomingBirthdays(withinDays: args["days"]?.intValue ?? 30)
         return MCPToolResult(text: try jsonString(contacts))
     }
 

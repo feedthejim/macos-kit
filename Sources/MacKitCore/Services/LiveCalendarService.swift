@@ -31,7 +31,7 @@ public final class LiveCalendarService: CalendarServiceProtocol, @unchecked Send
                 id: cal.calendarIdentifier,
                 title: cal.title,
                 source: cal.source.title,
-                color: cal.cgColor.flatMap { hexColor(from: $0) },
+                color: cal.cgColor.flatMap { EventKitMapper.hexColor(from: $0) },
                 isSubscribed: cal.isSubscribed
             )
         }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
@@ -48,7 +48,7 @@ public final class LiveCalendarService: CalendarServiceProtocol, @unchecked Send
         let predicate = store.predicateForEvents(withStart: startDate, end: endDate, calendars: ekCalendars)
         let ekEvents = store.events(matching: predicate)
 
-        return ekEvents.map { mapEvent($0) }
+        return ekEvents.map { EventKitMapper.mapEvent($0) }
             .sorted { $0.startDate < $1.startDate }
     }
 
@@ -70,45 +70,5 @@ public final class LiveCalendarService: CalendarServiceProtocol, @unchecked Send
             calendars: nil
         )
         return events.first { $0.startDate >= now || ($0.startDate <= now && $0.endDate > now) }
-    }
-
-    private func mapEvent(_ ekEvent: EKEvent) -> CalendarEvent {
-        let meetingURL = MeetingURLExtractor.extract(
-            fromLocation: ekEvent.location,
-            notes: ekEvent.notes,
-            url: ekEvent.url?.absoluteString
-        )
-
-        let status: EventStatus
-        switch ekEvent.status {
-        case .confirmed: status = .confirmed
-        case .tentative: status = .tentative
-        case .canceled: status = .cancelled
-        default: status = .none
-        }
-
-        return CalendarEvent(
-            id: ekEvent.eventIdentifier ?? UUID().uuidString,
-            title: ekEvent.title ?? "(No title)",
-            startDate: ekEvent.startDate,
-            endDate: ekEvent.endDate,
-            isAllDay: ekEvent.isAllDay,
-            location: ekEvent.location,
-            calendarName: ekEvent.calendar.title,
-            calendarColor: ekEvent.calendar.cgColor.flatMap { hexColor(from: $0) },
-            status: status,
-            organizer: ekEvent.organizer?.name,
-            notes: ekEvent.notes,
-            url: ekEvent.url?.absoluteString,
-            meetingURL: meetingURL
-        )
-    }
-
-    private func hexColor(from cgColor: CGColor) -> String? {
-        guard let components = cgColor.components, components.count >= 3 else { return nil }
-        let r = Int(components[0] * 255)
-        let g = Int(components[1] * 255)
-        let b = Int(components[2] * 255)
-        return String(format: "#%02X%02X%02X", r, g, b)
     }
 }
