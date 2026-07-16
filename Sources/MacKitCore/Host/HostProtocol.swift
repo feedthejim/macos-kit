@@ -3,6 +3,21 @@ import Foundation
 public enum HostRequestMode: String, Codable, Sendable {
     case command
     case stream
+    case notification
+}
+
+public struct HostNotificationRequest: Codable, Sendable, Equatable {
+    public let title: String
+    public let body: String
+    public let subtitle: String?
+    public let soundName: String?
+
+    public init(title: String, body: String, subtitle: String? = nil, soundName: String? = nil) {
+        self.title = title
+        self.body = body
+        self.subtitle = subtitle
+        self.soundName = soundName
+    }
 }
 
 public struct HostRequest: Codable, Sendable {
@@ -12,6 +27,7 @@ public struct HostRequest: Codable, Sendable {
     public let environment: [String: String]
     public let standardOutputIsTTY: Bool
     public let timeoutSeconds: Int
+    public let notification: HostNotificationRequest?
 
     public init(
         mode: HostRequestMode,
@@ -19,7 +35,8 @@ public struct HostRequest: Codable, Sendable {
         currentDirectory: String,
         environment: [String: String],
         standardOutputIsTTY: Bool,
-        timeoutSeconds: Int = HostLimits.defaultCommandTimeoutSeconds
+        timeoutSeconds: Int = HostLimits.defaultCommandTimeoutSeconds,
+        notification: HostNotificationRequest? = nil
     ) {
         self.mode = mode
         self.arguments = arguments
@@ -27,6 +44,7 @@ public struct HostRequest: Codable, Sendable {
         self.environment = environment
         self.standardOutputIsTTY = standardOutputIsTTY
         self.timeoutSeconds = HostLimits.clampedTimeout(timeoutSeconds)
+        self.notification = notification
     }
 }
 

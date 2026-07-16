@@ -46,4 +46,29 @@ struct HostProtocolTests {
         )
         #expect(decoded.timeoutSeconds == 12)
     }
+
+    @Test("Notification requests preserve their application payload")
+    func notificationRequest() throws {
+        let notification = HostNotificationRequest(
+            title: "Build complete",
+            body: "MacKit finished successfully.",
+            subtitle: "MacKit",
+            soundName: "default"
+        )
+        let request = HostRequest(
+            mode: .notification,
+            arguments: [],
+            currentDirectory: "/tmp",
+            environment: [:],
+            standardOutputIsTTY: false,
+            notification: notification
+        )
+
+        let decoded = try JSONDecoder().decode(
+            HostRequest.self, from: JSONEncoder().encode(request)
+        )
+
+        #expect(decoded.mode == .notification)
+        #expect(decoded.notification == notification)
+    }
 }

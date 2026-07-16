@@ -23,6 +23,7 @@ Key patterns:
 - **FieldSelectable protocol**: Static `availableFields` list for `--json` field validation (avoids optional-nil-key problem)
 - **MCP server reuses services**: Single instance per service type, not per tool call
 - **Bounded host execution**: Hosted commands have deadlines, concurrency/output caps, disconnect cancellation, a single-instance lock, and metadata-only JSONL logs
+- **Application-owned notifications**: CLI and MCP notification calls send a typed request back to `MacKitHost`; `UNUserNotificationCenter` must initialize in the app process while its main run loop remains available
 - **Paged mail queries**: List/search use `MailQuery` + `MailPage`; expensive recipients, bodies, and attachments are opt-in
 
 ## Build & Test

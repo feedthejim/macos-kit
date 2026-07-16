@@ -51,7 +51,7 @@ public final class MCPServer: @unchecked Sendable {
             return JSONRPCResponse(id: request.id, result: [
                 "protocolVersion": "2024-11-05",
                 "capabilities": ["tools": [String: Any]()],
-                "serverInfo": ["name": "mackit", "version": "0.1.0"],
+                "serverInfo": ["name": "mackit", "version": MacKitVersion.current],
             ] as [String: Any])
 
         case "tools/list":

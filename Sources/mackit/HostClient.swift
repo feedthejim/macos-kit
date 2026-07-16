@@ -46,6 +46,9 @@ enum HostClient {
             return response.exitCode
         case .stream:
             return try proxyStandardIO(over: socket)
+        case .notification:
+            close(socket)
+            throw HostClientError.invalidResponse
         }
     }
 
@@ -72,7 +75,7 @@ enum HostClient {
         if let socket { close(socket) }
         checks.append((
             "Host service", socket != nil,
-            socket != nil ? "reachable at (HostPaths.socketURL.path)" : "not reachable"
+            socket != nil ? "reachable at \(HostPaths.socketURL.path)" : "not reachable"
         ))
 
         let permissions = (try? fileManager.attributesOfItem(

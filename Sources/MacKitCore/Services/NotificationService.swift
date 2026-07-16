@@ -8,6 +8,18 @@ public enum NotificationService: Sendable {
         subtitle: String? = nil,
         soundName: String? = nil
     ) async throws {
+        try HostNotificationClient.send(HostNotificationRequest(
+            title: title, body: body, subtitle: subtitle, soundName: soundName
+        ))
+    }
+
+    @MainActor
+    public static func deliverFromApplication(
+        title: String,
+        body: String,
+        subtitle: String? = nil,
+        soundName: String? = nil
+    ) async throws {
         let center = UNUserNotificationCenter.current()
 
         let granted = try await center.requestAuthorization(options: [.alert, .sound])

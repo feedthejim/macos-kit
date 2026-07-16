@@ -14,6 +14,19 @@ private enum HostServerError: LocalizedError {
     }
 }
 
+private final class NotificationResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: Result<Void, Error>?
+
+    func store(_ result: Result<Void, Error>) {
+        lock.withLock { self.result = result }
+    }
+
+    func load() -> Result<Void, Error>? {
+        lock.withLock { result }
+    }
+}
+
 private final class HostServer: @unchecked Sendable {
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -109,6 +122,17 @@ private final class HostServer: @unchecked Sendable {
         do {
             let data = try readLine(from: client, maximumBytes: 1_048_576)
             let request = try decoder.decode(HostRequest.self, from: data)
+
+            // UserNotifications must be initialized by the application executable.
+            // Handle these requests here instead of spawning the bundled CLI helper.
+            if request.mode == .notification {
+                let response = executeNotification(request)
+                var responseData = try encoder.encode(response)
+                responseData.append(0x0A)
+                try writeAll(responseData, to: client)
+                return
+            }
+
             guard commandSlots.wait(timeout: .now()) == .success else {
                 let response = HostResponse(
                     exitCode: 75,
@@ -130,6 +154,8 @@ private final class HostServer: @unchecked Sendable {
                 try writeAll(responseData, to: client)
             case .stream:
                 try stream(request, over: client)
+            case .notification:
+                preconditionFailure("Notification requests are handled before command admission")
             }
         } catch {
             let response = HostResponse(
@@ -141,6 +167,65 @@ private final class HostServer: @unchecked Sendable {
                 data.append(0x0A)
                 try? writeAll(data, to: client)
             }
+        }
+    }
+
+    private func executeNotification(_ request: HostRequest) -> HostResponse {
+        guard let notification = request.notification else {
+            return HostResponse(
+                exitCode: 64,
+                standardOutput: "",
+                standardError: "The notification request is missing its payload.\n"
+            )
+        }
+
+        let started = Date()
+        let resultBox = NotificationResultBox()
+        let completion = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                try await NotificationService.deliverFromApplication(
+                    title: notification.title,
+                    body: notification.body,
+                    subtitle: notification.subtitle,
+                    soundName: notification.soundName
+                )
+                resultBox.store(.success(()))
+            } catch {
+                resultBox.store(.failure(error))
+            }
+            completion.signal()
+        }
+
+        guard completion.wait(timeout: .now() + .seconds(request.timeoutSeconds)) == .success else {
+            log(event: "notification_failed", request: request, fields: ["reason": "timeout"])
+            return HostResponse(
+                exitCode: 124,
+                standardOutput: "",
+                standardError: "Notification authorization exceeded the host deadline.\n"
+            )
+        }
+
+        let elapsedMS = Int(Date().timeIntervalSince(started) * 1_000)
+        switch resultBox.load() {
+        case .success:
+            log(event: "notification_sent", request: request, fields: ["duration_ms": elapsedMS])
+            return HostResponse(exitCode: 0, standardOutput: "", standardError: "")
+        case .failure(let error):
+            log(event: "notification_failed", request: request, fields: [
+                "duration_ms": elapsedMS, "reason": error.localizedDescription,
+            ])
+            return HostResponse(
+                exitCode: 1,
+                standardOutput: "",
+                standardError: error.localizedDescription + "\n"
+            )
+        case nil:
+            return HostResponse(
+                exitCode: 70,
+                standardOutput: "",
+                standardError: "Notification delivery completed without a result.\n"
+            )
         }
     }
 
@@ -300,7 +385,7 @@ private final class HostServer: @unchecked Sendable {
         var value: [String: Any] = [
             "timestamp": ISO8601DateFormatter().string(from: Date()),
             "event": event,
-            "command": request.arguments.first ?? "",
+            "command": request.arguments.first ?? request.mode.rawValue,
         ]
         value.merge(fields) { _, new in new }
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else {
@@ -364,7 +449,16 @@ private final class HostServer: @unchecked Sendable {
 }
 
 do {
-    try HostServer().run()
+    let server = try HostServer()
+    DispatchQueue.global(qos: .userInitiated).async {
+        do {
+            try server.run()
+        } catch {
+            FileHandle.standardError.write(Data("MacKitHost: \(error.localizedDescription)\n".utf8))
+            exit(1)
+        }
+    }
+    dispatchMain()
 } catch {
     FileHandle.standardError.write(Data("MacKitHost: \(error.localizedDescription)\n".utf8))
     exit(1)
