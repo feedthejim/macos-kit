@@ -30,7 +30,7 @@ Or globally in `~/.claude.json`:
 {
   "mcpServers": {
     "mackit": {
-      "command": "/usr/local/bin/mackit",
+      "command": "/Users/YOUR_USERNAME/.local/bin/mackit",
       "args": ["mcp"]
     }
   }
@@ -45,7 +45,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "mackit": {
-      "command": "/usr/local/bin/mackit",
+      "command": "/Users/YOUR_USERNAME/.local/bin/mackit",
       "args": ["mcp"]
     }
   }
@@ -94,8 +94,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ### Mail (read)
 | Tool | Description |
 |------|-------------|
-| `mail_list` | List messages (mailbox, account, unreadOnly, limit, fields) |
-| `mail_search` | Search by keyword (query, mailbox, account, limit, fields) |
+| `mail_list` | List messages (mailbox, account, unreadOnly, sender, from, to, limit, offset, fields) |
+| `mail_search` | Search by keyword (query, mailbox, account, sender, from, to, limit, offset, fields) |
 | `mail_read` | Read full message (id, mailbox, account) |
 | `mail_mailboxes` | List mailboxes with counts (account) |
 | `mail_accounts` | List all mail accounts |
@@ -123,6 +123,7 @@ Calendar and mail tools return compact views by default. This saves context. To 
 calendar_list { "from": "today", "fields": "notes,organizer" }
 calendar_next { "fields": "notes" }
 mail_list { "mailbox": "INBOX", "fields": "toRecipients,summary" }
+mail_list { "sender": "stripe", "from": "monday", "limit": 25, "offset": 25 }
 ```
 
 Calendar extra fields: `notes`, `organizer`, `calendarColor`, `url`
@@ -132,13 +133,17 @@ Status is always included for calendar: `confirmed`, `tentative`, `cancelled`, `
 
 ## Permissions
 
-First use of calendar/reminders/contacts tools will trigger a macOS permission prompt. If denied, the tool returns an error with instructions to grant access in System Settings.
+First use of calendar/reminders/contacts tools launches `MacKit.app` and triggers
+a macOS permission prompt for MacKit. If denied, the tool returns an error with
+instructions to grant access in System Settings.
 
 ## Troubleshooting
 
-**"command not found":** Use the full path `/usr/local/bin/mackit` in the config.
+**"command not found":** Use the full path
+`/Users/YOUR_USERNAME/.local/bin/mackit` in the config.
 
-**No permission prompt:** Reset with `tccutil reset Calendar` then retry.
+**No permission prompt:** Confirm `~/Applications/MacKit.app` is installed, then
+open System Settings > Privacy & Security and grant access to MacKit.
 
 **Test the server manually:**
 ```bash

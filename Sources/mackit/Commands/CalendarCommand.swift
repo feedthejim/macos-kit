@@ -47,7 +47,7 @@ extension CalendarCommand {
         @Option(name: .long, help: "Start date: YYYY-MM-DD, 'today', 'tomorrow', day name, 'next week'")
         var from: String?
 
-        @Option(name: .long, help: "End date (same formats as --from)")
+        @Option(name: .long, help: "Inclusive end date (same formats as --from)")
         var to: String?
 
         @Option(name: [.short, .customLong("calendar")], help: "Filter by calendar name (repeatable)")
@@ -62,7 +62,8 @@ extension CalendarCommand {
         @Option(name: .customLong("json"), help: """
             Output JSON with specific fields (comma-separated). \
             Fields: id, title, startDate, endDate, isAllDay, location, \
-            calendarName, calendarColor, status, organizer, notes, url, meetingURL
+            calendarId, calendarName, calendarColor, status, availability, isRecurring, \
+            attendees, organizer, notes, url, meetingURL
             """)
         var jsonFields: String?
 
@@ -74,21 +75,15 @@ extension CalendarCommand {
             try await service.requestAccess()
 
             let (startDate, endDate) = try resolveRange()
+            let queryStart = !includePast && Calendar.current.isDateInToday(startDate)
+                ? max(startDate, Date()) : startDate
 
-            var events = try await service.events(
-                from: startDate,
+            let events = try await service.events(
+                from: queryStart,
                 to: endDate,
-                calendars: calendarNames.isEmpty ? nil : calendarNames
+                calendars: calendarNames.isEmpty ? nil : calendarNames,
+                limit: limit
             )
-
-            // Filter past events unless --include-past
-            if !includePast && Calendar.current.isDateInToday(startDate) {
-                events = events.filter { $0.endDate > Date() }
-            }
-
-            if let limit {
-                events = Array(events.prefix(limit))
-            }
 
             try output(events)
         }
@@ -124,7 +119,7 @@ extension CalendarCommand {
 
             let end: Date
             if let to {
-                end = try DateParsing.parse(to)
+                end = try DateParsing.parseRangeEnd(to)
             } else {
                 end = calendar.date(byAdding: .day, value: 1, to: start)!
             }
@@ -150,9 +145,7 @@ extension CalendarCommand {
                     print("No events")
                 } else {
                     print(OutputRenderer.renderText(events, emptyMessage: "No events"))
-                    let totalMinutes = events.reduce(0) { sum, e in
-                        sum + Int(e.endDate.timeIntervalSince(e.startDate) / 60)
-                    }
+                    let totalMinutes = CalendarDurationCalculator.busyMinutes(events: events)
                     print("\n\(events.count) event\(events.count == 1 ? "" : "s"), \(DurationFormatter.format(minutes: totalMinutes)) of meetings")
                 }
             case .table:
@@ -168,12 +161,19 @@ extension CalendarCommand {
             for dayOffset in 0..<7 {
                 let dayStart = cal.startOfDay(for: cal.date(byAdding: .day, value: dayOffset, to: Date())!)
                 let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart)!
-                let dayEvents = events.filter { $0.startDate >= dayStart && $0.startDate < dayEnd && !$0.isAllDay }
-                let dayMinutes = dayEvents.reduce(0) { $0 + Int($1.endDate.timeIntervalSince($1.startDate) / 60) }
+                let overlapping = events.filter { $0.endDate > dayStart && $0.startDate < dayEnd }
+                let dayEvents = overlapping.filter { !$0.isAllDay }
+                let allDayCount = overlapping.filter(\.isAllDay).count
+                let dayMinutes = CalendarDurationCalculator.busyMinutes(
+                    events: dayEvents, rangeStart: dayStart, rangeEnd: dayEnd
+                )
 
                 let dayName = dayStart.formatted(.dateTime.weekday(.wide))
                 let dayDate = dayStart.formatted(.dateTime.month(.abbreviated).day())
-                let countStr = dayEvents.isEmpty ? "no events" : "\(dayEvents.count) event\(dayEvents.count == 1 ? "" : "s")"
+                let timedCount = dayEvents.isEmpty
+                    ? "no events" : "\(dayEvents.count) event\(dayEvents.count == 1 ? "" : "s")"
+                let countStr = allDayCount > 0
+                    ? "\(timedCount), \(allDayCount) all-day" : timedCount
                 let durationStr = dayMinutes > 0 ? "   \(DurationFormatter.format(minutes: dayMinutes))" : ""
 
                 print("  \(dayName.padding(toLength: 12, withPad: " ", startingAt: 0))\(dayDate.padding(toLength: 8, withPad: " ", startingAt: 0))\(countStr)\(durationStr)")
@@ -239,7 +239,7 @@ extension CalendarCommand {
             commandName: "free",
             abstract: "Show free time slots",
             discussion: """
-                Calculates gaps between events during working hours (9 AM - 5 PM). \
+                Calculates gaps between events during configurable working hours. \
                 Past slots are excluded.
 
                 EXAMPLES:
@@ -247,6 +247,8 @@ extension CalendarCommand {
                   mackit cal free --date tomorrow         # Free slots tomorrow
                   mackit cal free --duration 30m          # Only slots >= 30 min
                   mackit cal free --duration 1h           # Only slots >= 1 hour
+                  mackit cal free --work-start 8am --work-end 6pm -c Work
+                  mackit cal free --buffer 15m            # Add space around meetings
                 """
         )
 
@@ -257,6 +259,18 @@ extension CalendarCommand {
 
         @Option(name: .long, help: "Minimum slot duration: 30m, 1h, 90m (default: show all)")
         var duration: String?
+
+        @Option(name: .customLong("work-start"), help: "Working day start (default: 9am)")
+        var workStart: String = "9am"
+
+        @Option(name: .customLong("work-end"), help: "Working day end (default: 5pm)")
+        var workEnd: String = "5pm"
+
+        @Option(name: [.short, .customLong("calendar")], help: "Calendar name or ID (repeatable)")
+        var calendarNames: [String] = []
+
+        @Option(name: .long, help: "Buffer around meetings: 15m, 30m (default: none)")
+        var buffer: String?
 
         func run() async throws {
             let service = LiveCalendarService()
@@ -271,23 +285,44 @@ extension CalendarCommand {
             }
 
             let dayStart = calendar.startOfDay(for: targetDate)
-            // Working hours: 9 AM - 5 PM
-            let rangeStart = max(
-                calendar.date(bySettingHour: 9, minute: 0, second: 0, of: dayStart)!,
-                Date() // Don't show past slots
-            )
-            let rangeEnd = calendar.date(bySettingHour: 17, minute: 0, second: 0, of: dayStart)!
+            guard dayStart >= calendar.startOfDay(for: Date()) else {
+                throw ValidationError("Free-slot dates cannot be in the past")
+            }
+
+            let startTime = try DateParsing.parseTime(workStart)
+            let endTime = try DateParsing.parseTime(workEnd)
+            let startComponents = calendar.dateComponents([.hour, .minute], from: startTime)
+            let endComponents = calendar.dateComponents([.hour, .minute], from: endTime)
+            guard let startHour = startComponents.hour, let startMinute = startComponents.minute,
+                  let endHour = endComponents.hour, let endMinute = endComponents.minute,
+                  let workRangeStart = calendar.date(
+                    bySettingHour: startHour, minute: startMinute, second: 0, of: dayStart
+                  ),
+                  let rangeEnd = calendar.date(
+                    bySettingHour: endHour, minute: endMinute, second: 0, of: dayStart
+                  ) else {
+                throw ValidationError("Working hours do not exist in the current time zone")
+            }
+            guard rangeEnd > workRangeStart else {
+                throw ValidationError("--work-end must be after --work-start")
+            }
+            let rangeStart = calendar.isDateInToday(dayStart)
+                ? max(workRangeStart, Date()) : workRangeStart
 
             guard rangeStart < rangeEnd else {
-                print("No working hours remaining today")
+                print("No working hours remaining on the requested date")
                 return
             }
 
-            let events = try await service.events(from: dayStart, to: rangeEnd, calendars: nil)
-            let minMinutes = FreeSlotCalculator.parseDuration(duration)
+            let events = try await service.events(
+                from: rangeStart, to: rangeEnd,
+                calendars: calendarNames.isEmpty ? nil : calendarNames
+            )
+            let minMinutes = try FreeSlotCalculator.parseDuration(duration)
+            let bufferMinutes = try FreeSlotCalculator.parseDuration(buffer)
             let slots = FreeSlotCalculator.calculate(
                 events: events, rangeStart: rangeStart, rangeEnd: rangeEnd,
-                minDurationMinutes: minMinutes
+                minDurationMinutes: minMinutes, bufferMinutes: bufferMinutes
             )
 
             if globals.effectiveFormat == .json {

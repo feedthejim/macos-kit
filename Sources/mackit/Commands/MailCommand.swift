@@ -2,6 +2,23 @@ import ArgumentParser
 import MacKitCore
 import Foundation
 
+private func reportPage(_ page: MailPage) {
+    for warning in page.warnings {
+        FileHandle.standardError.write(Data("Warning: \(warning)\n".utf8))
+    }
+    if let nextOffset = page.nextOffset {
+        FileHandle.standardError.write(
+            Data("More messages available. Use --offset \(nextOffset).\n".utf8)
+        )
+    }
+}
+
+private func groupedByThread(_ messages: [MailMessage]) -> [MailMessage] {
+    Dictionary(grouping: messages, by: \.threadId)
+        .compactMap { $0.value.max(by: { $0.dateReceived < $1.dateReceived }) }
+        .sorted { $0.dateReceived > $1.dateReceived }
+}
+
 struct MailCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mail",
@@ -36,6 +53,8 @@ extension MailCommand {
                   mackit mail list --unread                 # Unread only
                   mackit mail list -m "Sent Mail" -a Gmail  # Sent from Gmail
                   mackit mail list -n 5                     # Last 5 messages
+                  mackit mail list --sender stripe --from monday --to today
+                  mackit mail list --offset 25 -n 25        # Next page
                 """
         )
 
@@ -53,6 +72,21 @@ extension MailCommand {
         @Option(name: [.customShort("n"), .customLong("limit")], help: "Max messages to return (default: 25)")
         var limit: Int = 25
 
+        @Option(name: .long, help: "Skip messages for pagination (default: 0)")
+        var offset: Int = 0
+
+        @Option(name: .long, help: "Filter sender by name or address")
+        var sender: String?
+
+        @Option(name: .long, help: "Only messages received after this date")
+        var from: String?
+
+        @Option(name: .long, help: "Only messages received through this inclusive date")
+        var to: String?
+
+        @Flag(name: .customLong("group-threads"), help: "Show only the newest message per normalized subject")
+        var groupThreads = false
+
         @Option(name: .customLong("json"), help: """
             Output JSON with specific fields (comma-separated). \
             Fields: \(MailMessage.availableFields.joined(separator: ", "))
@@ -61,12 +95,32 @@ extension MailCommand {
 
         func run() async throws {
             let service = LiveMailService()
-            let messages = try await service.messages(
-                mailbox: mailbox, account: account, limit: limit, unreadOnly: unread
-            )
+            let fields = jsonFields?.split(separator: ",").map(String.init)
+            let includeDetails = fields.map { !MailMessage.detailFields.isDisjoint(with: $0) }
+                ?? (globals.effectiveFormat == .json)
+            guard limit > 0, limit <= 200, offset >= 0 else {
+                throw ValidationError("--limit must be 1...200 and --offset cannot be negative")
+            }
+            let page = try await service.queryMessages(MailQuery(
+                mailbox: mailbox, account: account, sender: sender,
+                receivedAfter: try from.map { try DateParsing.parse($0) },
+                receivedBefore: try to.map { try DateParsing.parseRangeEnd($0) },
+                unreadOnly: unread, limit: limit, offset: offset,
+                includeDetails: includeDetails, requestedFields: Set(fields ?? [])
+            ))
+            let messages = groupThreads
+                ? groupedByThread(page.messages)
+                : page.messages
+            reportPage(page)
 
-            if let jsonFields {
-                let fields = jsonFields.split(separator: ",").map(String.init)
+            if globals.effectiveFormat == .json, jsonFields == nil {
+                print(try OutputRenderer.renderJSON(MailPage(
+                    messages: messages, offset: page.offset, nextOffset: page.nextOffset,
+                    isPartial: page.isPartial, warnings: page.warnings
+                )))
+                return
+            }
+            if let fields {
                 print(try FieldSelection.select(fields: fields, from: messages))
             } else {
                 switch globals.effectiveFormat {
@@ -132,6 +186,7 @@ extension MailCommand {
                   mackit mail search "invoice"               # Search all INBOX
                   mackit mail search "meeting" -m "All Mail"  # Search specific mailbox
                   mackit mail search "bob" -a Gmail -n 10
+                  mackit mail search "invoice" --sender stripe --from "last monday"
                 """
         )
 
@@ -149,6 +204,21 @@ extension MailCommand {
         @Option(name: [.customShort("n"), .customLong("limit")], help: "Max results (default: 25)")
         var limit: Int = 25
 
+        @Option(name: .long, help: "Skip results for pagination (default: 0)")
+        var offset: Int = 0
+
+        @Option(name: .long, help: "Filter sender by name or address")
+        var sender: String?
+
+        @Option(name: .long, help: "Only messages received after this date")
+        var from: String?
+
+        @Option(name: .long, help: "Only messages received through this inclusive date")
+        var to: String?
+
+        @Flag(name: .customLong("group-threads"), help: "Show only the newest message per normalized subject")
+        var groupThreads = false
+
         @Option(name: .customLong("json"), help: """
             Output JSON with specific fields (comma-separated). \
             Fields: \(MailMessage.availableFields.joined(separator: ", "))
@@ -157,12 +227,32 @@ extension MailCommand {
 
         func run() async throws {
             let service = LiveMailService()
-            let messages = try await service.searchMessages(
-                query: query, mailbox: mailbox, account: account, limit: limit
-            )
+            let fields = jsonFields?.split(separator: ",").map(String.init)
+            let includeDetails = fields.map { !MailMessage.detailFields.isDisjoint(with: $0) }
+                ?? (globals.effectiveFormat == .json)
+            guard limit > 0, limit <= 200, offset >= 0 else {
+                throw ValidationError("--limit must be 1...200 and --offset cannot be negative")
+            }
+            let page = try await service.queryMessages(MailQuery(
+                search: query, mailbox: mailbox, account: account, sender: sender,
+                receivedAfter: try from.map { try DateParsing.parse($0) },
+                receivedBefore: try to.map { try DateParsing.parseRangeEnd($0) },
+                limit: limit, offset: offset, includeDetails: includeDetails,
+                requestedFields: Set(fields ?? [])
+            ))
+            let messages = groupThreads
+                ? groupedByThread(page.messages)
+                : page.messages
+            reportPage(page)
 
-            if let jsonFields {
-                let fields = jsonFields.split(separator: ",").map(String.init)
+            if globals.effectiveFormat == .json, jsonFields == nil {
+                print(try OutputRenderer.renderJSON(MailPage(
+                    messages: messages, offset: page.offset, nextOffset: page.nextOffset,
+                    isPartial: page.isPartial, warnings: page.warnings
+                )))
+                return
+            }
+            if let fields {
                 print(try FieldSelection.select(fields: fields, from: messages))
             } else {
                 switch globals.effectiveFormat {

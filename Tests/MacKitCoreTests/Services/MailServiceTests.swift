@@ -13,13 +13,41 @@ struct MailServiceTests {
         isRead: Bool = false,
         mailbox: String = "INBOX",
         account: String = "iCloud",
+        dateReceived: Date? = nil,
         content: String? = nil
     ) -> MailMessage {
         MailMessage(
             id: id, subject: subject, sender: sender,
-            dateReceived: sampleDate, isRead: isRead,
+            dateReceived: dateReceived ?? sampleDate, isRead: isRead,
             mailbox: mailbox, account: account, content: content
         )
+    }
+
+    @Test("Query supports sender, date, and pagination filters")
+    func queryFiltersAndPagination() async throws {
+        let mock = MockMailService()
+        mock.mockMessages = [
+            message(id: "1", sender: "billing@stripe.com", dateReceived: sampleDate),
+            message(id: "2", sender: "billing@stripe.com", dateReceived: sampleDate.addingTimeInterval(60)),
+            message(id: "3", sender: "other@example.com", dateReceived: sampleDate.addingTimeInterval(120)),
+        ]
+        let page = try await mock.queryMessages(MailQuery(
+            sender: "stripe", receivedAfter: sampleDate.addingTimeInterval(-1),
+            limit: 1, offset: 1
+        ))
+        #expect(page.messages.map(\.id) == ["1"])
+        #expect(page.nextOffset == nil)
+    }
+
+    @Test("Query reports the next page offset")
+    func queryNextOffset() async throws {
+        let mock = MockMailService()
+        mock.mockMessages = (1...4).map {
+            message(id: "\($0)", dateReceived: sampleDate.addingTimeInterval(Double($0)))
+        }
+        let page = try await mock.queryMessages(MailQuery(limit: 2))
+        #expect(page.messages.map(\.id) == ["4", "3"])
+        #expect(page.nextOffset == 2)
     }
 
     @Test("Messages filters by mailbox")
@@ -72,6 +100,26 @@ struct MailServiceTests {
         #expect(results.count == 3)
     }
 
+    @Test("Messages skips expensive details by default")
+    func messagesSkipDetailsByDefault() async throws {
+        let mock = MockMailService()
+
+        _ = try await mock.messages(mailbox: nil, account: nil, limit: 25, unreadOnly: false)
+
+        #expect(!mock.lastIncludeDetails)
+    }
+
+    @Test("Messages can request expensive details")
+    func messagesIncludeDetails() async throws {
+        let mock = MockMailService()
+
+        _ = try await mock.messages(
+            mailbox: nil, account: nil, limit: 25, unreadOnly: false, includeDetails: true
+        )
+
+        #expect(mock.lastIncludeDetails)
+    }
+
     @Test("Search matches subject")
     func searchBySubject() async throws {
         let mock = MockMailService()
@@ -95,6 +143,18 @@ struct MailServiceTests {
 
         let results = try await mock.searchMessages(query: "bob", mailbox: nil, account: nil, limit: 25)
         #expect(results.count == 1)
+    }
+
+    @Test("Search is not capped at the first 100 messages")
+    func searchBeyondFirstHundred() async throws {
+        let mock = MockMailService()
+        mock.mockMessages = (1...125).map {
+            message(id: "\($0)", subject: $0 == 125 ? "Needle" : "Routine update")
+        }
+
+        let results = try await mock.searchMessages(query: "needle", mailbox: nil, account: nil, limit: 25)
+
+        #expect(results.map(\.id) == ["125"])
     }
 
     @Test("GetMessage returns matching message")

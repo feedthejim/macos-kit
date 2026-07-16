@@ -2,16 +2,23 @@ import Contacts
 import Foundation
 
 public final class LiveContactsService: ContactsServiceProtocol, @unchecked Sendable {
+    private static let permissionTimeoutSeconds = 30
+    private static let birthdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
     private let store = CNContactStore()
 
     public init() {}
 
     public func requestAccess() async throws {
-        let granted: Bool
-        if #available(macOS 14.0, *) {
-            granted = try await store.requestAccess(for: .contacts)
-        } else {
-            granted = try await store.requestAccess(for: .contacts)
+        let granted = try await withAsyncTimeout(
+            seconds: Self.permissionTimeoutSeconds,
+            timeoutError: permissionTimeoutError(.contacts)
+        ) { [self] in
+            try await store.requestAccess(for: .contacts)
         }
 
         guard granted else {
@@ -25,17 +32,9 @@ public final class LiveContactsService: ContactsServiceProtocol, @unchecked Send
         }
     }
 
-    public func search(query: String, limit: Int?) async throws -> [Contact] {
-        let keysToFetch: [CNKeyDescriptor] = [
-            CNContactGivenNameKey as CNKeyDescriptor,
-            CNContactFamilyNameKey as CNKeyDescriptor,
-            CNContactOrganizationNameKey as CNKeyDescriptor,
-            CNContactEmailAddressesKey as CNKeyDescriptor,
-            CNContactPhoneNumbersKey as CNKeyDescriptor,
-            CNContactBirthdayKey as CNKeyDescriptor,
-            CNContactNoteKey as CNKeyDescriptor,
-            CNContactIdentifierKey as CNKeyDescriptor,
-        ]
+    public func search(query: String, limit: Int?, fields: Set<String>?) async throws -> [Contact] {
+        if let limit, limit <= 0 { return [] }
+        let keysToFetch = contactKeys(for: fields)
 
         let predicate = CNContact.predicateForContacts(matchingName: query)
         let cnContacts = try store.unifiedContacts(matching: predicate, keysToFetch: keysToFetch)
@@ -49,16 +48,11 @@ public final class LiveContactsService: ContactsServiceProtocol, @unchecked Send
         return results
     }
 
-    public func upcomingBirthdays(withinDays days: Int) async throws -> [Contact] {
-        let keysToFetch: [CNKeyDescriptor] = [
-            CNContactGivenNameKey as CNKeyDescriptor,
-            CNContactFamilyNameKey as CNKeyDescriptor,
-            CNContactOrganizationNameKey as CNKeyDescriptor,
-            CNContactEmailAddressesKey as CNKeyDescriptor,
-            CNContactPhoneNumbersKey as CNKeyDescriptor,
-            CNContactBirthdayKey as CNKeyDescriptor,
-            CNContactIdentifierKey as CNKeyDescriptor,
-        ]
+    public func upcomingBirthdays(withinDays days: Int, fields: Set<String>?) async throws -> [Contact] {
+        guard days >= 0 else { return [] }
+        var requestedFields = fields ?? Set(Contact.availableFields)
+        requestedFields.formUnion(["givenName", "familyName", "birthday"])
+        let keysToFetch = contactKeys(for: requestedFields)
 
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
@@ -72,10 +66,14 @@ public final class LiveContactsService: ContactsServiceProtocol, @unchecked Send
             guard let birthday = cnContact.birthday else { return }
 
             // Check if birthday falls within range (month/day comparison)
-            var thisYearBirthday = birthday
-            thisYearBirthday.year = calendar.component(.year, from: today)
+            var nextBirthday = birthday
+            nextBirthday.year = calendar.component(.year, from: today)
 
-            if let bdayDate = calendar.date(from: thisYearBirthday),
+            if let candidate = calendar.date(from: nextBirthday), candidate < today {
+                nextBirthday.year = (nextBirthday.year ?? 0) + 1
+            }
+
+            if let bdayDate = calendar.date(from: nextBirthday),
                bdayDate >= today && bdayDate <= endDate
             {
                 contacts.append(mapContact(cnContact))
@@ -96,11 +94,9 @@ public final class LiveContactsService: ContactsServiceProtocol, @unchecked Send
 
     private func mapContact(_ cnContact: CNContact) -> Contact {
         let birthday: String?
-        if let bday = cnContact.birthday {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "MMM d"
+        if cnContact.isKeyAvailable(CNContactBirthdayKey), let bday = cnContact.birthday {
             if let date = Calendar.current.date(from: bday) {
-                birthday = formatter.string(from: date)
+                birthday = Self.birthdayFormatter.string(from: date)
             } else {
                 birthday = nil
             }
@@ -110,13 +106,33 @@ public final class LiveContactsService: ContactsServiceProtocol, @unchecked Send
 
         return Contact(
             id: cnContact.identifier,
-            givenName: cnContact.givenName,
-            familyName: cnContact.familyName,
-            organizationName: cnContact.organizationName.isEmpty ? nil : cnContact.organizationName,
-            emailAddresses: cnContact.emailAddresses.map { $0.value as String },
-            phoneNumbers: cnContact.phoneNumbers.map { $0.value.stringValue },
+            givenName: cnContact.isKeyAvailable(CNContactGivenNameKey) ? cnContact.givenName : "",
+            familyName: cnContact.isKeyAvailable(CNContactFamilyNameKey) ? cnContact.familyName : "",
+            organizationName: organizationName(for: cnContact),
+            emailAddresses: cnContact.isKeyAvailable(CNContactEmailAddressesKey)
+                ? cnContact.emailAddresses.map { $0.value as String } : [],
+            phoneNumbers: cnContact.isKeyAvailable(CNContactPhoneNumbersKey)
+                ? cnContact.phoneNumbers.map { $0.value.stringValue } : [],
             birthday: birthday,
             note: nil // Note requires special entitlement
         )
+    }
+
+    private func contactKeys(for fields: Set<String>?) -> [CNKeyDescriptor] {
+        let fields = fields ?? Set(Contact.availableFields)
+        var keys: [CNKeyDescriptor] = [CNContactIdentifierKey as CNKeyDescriptor]
+        if fields.contains("givenName") { keys.append(CNContactGivenNameKey as CNKeyDescriptor) }
+        if fields.contains("familyName") { keys.append(CNContactFamilyNameKey as CNKeyDescriptor) }
+        if fields.contains("organizationName") { keys.append(CNContactOrganizationNameKey as CNKeyDescriptor) }
+        if fields.contains("emailAddresses") { keys.append(CNContactEmailAddressesKey as CNKeyDescriptor) }
+        if fields.contains("phoneNumbers") { keys.append(CNContactPhoneNumbersKey as CNKeyDescriptor) }
+        if fields.contains("birthday") { keys.append(CNContactBirthdayKey as CNKeyDescriptor) }
+        return keys
+    }
+
+    private func organizationName(for contact: CNContact) -> String? {
+        guard contact.isKeyAvailable(CNContactOrganizationNameKey),
+              !contact.organizationName.isEmpty else { return nil }
+        return contact.organizationName
     }
 }

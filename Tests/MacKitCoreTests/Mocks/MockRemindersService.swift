@@ -17,7 +17,7 @@ final class MockRemindersService: RemindersServiceProtocol, @unchecked Sendable 
         return mockLists
     }
 
-    func reminders(inList listName: String?, includeCompleted: Bool, dueBefore: Date?) async throws -> [Reminder] {
+    func reminders(inList listName: String?, includeCompleted: Bool, dueBefore: Date?, limit: Int?) async throws -> [Reminder] {
         try await requestAccess()
         var result = mockReminders
 
@@ -36,6 +36,7 @@ final class MockRemindersService: RemindersServiceProtocol, @unchecked Sendable 
             }
         }
 
+        if let limit { return Array(result.prefix(max(0, limit))) }
         return result
     }
 

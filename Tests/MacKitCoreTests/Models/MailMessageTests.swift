@@ -29,6 +29,39 @@ struct MailMessageTests {
         #expect(MailMessage.availableFields.contains("sender"))
         #expect(MailMessage.availableFields.contains("isRead"))
         #expect(MailMessage.availableFields.contains("content"))
+        #expect(MailMessage.availableFields.contains("attachments"))
+        #expect(MailMessage.availableFields.contains("threadId"))
+    }
+
+    @Test("Thread IDs normalize common reply prefixes")
+    func threadNormalization() {
+        #expect(MailThreading.normalizedSubject("Re: Fwd: Quarterly Plan") == "quarterly plan")
+    }
+
+    @Test("Attachment metadata round-trips")
+    func attachmentsRoundTrip() throws {
+        let original = MailMessage(
+            id: "1", subject: "Files", sender: "a@example.com",
+            dateReceived: sampleDate, attachmentCount: 1,
+            attachments: [MailAttachment(
+                id: "a1", name: "report.pdf", mimeType: "application/pdf",
+                sizeBytes: 42, isDownloaded: true
+            )]
+        )
+        let decoded = try JSONDecoder().decode(
+            MailMessage.self, from: JSONEncoder().encode(original)
+        )
+        #expect(decoded == original)
+    }
+
+    @Test("Mail page JSON uses the public partial key")
+    func mailPageJSONKeys() throws {
+        let data = try JSONEncoder().encode(MailPage(
+            messages: [], offset: 0, isPartial: true, warnings: ["one account failed"]
+        ))
+        let value = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(value["partial"] as? Bool == true)
+        #expect(value["isPartial"] == nil)
     }
 
     @Test("Codable round-trip preserves all fields")

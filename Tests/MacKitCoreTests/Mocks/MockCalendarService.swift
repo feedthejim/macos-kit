@@ -17,15 +17,17 @@ final class MockCalendarService: CalendarServiceProtocol, @unchecked Sendable {
         return mockCalendars
     }
 
-    func events(from startDate: Date, to endDate: Date, calendars: [String]?) async throws -> [CalendarEvent] {
+    func events(from startDate: Date, to endDate: Date, calendars: [String]?, limit: Int?) async throws -> [CalendarEvent] {
         try await requestAccess()
-        return mockEvents
-            .filter { $0.startDate >= startDate && $0.startDate < endDate }
+        let results = mockEvents
+            .filter { $0.endDate > startDate && $0.startDate < endDate }
             .filter { event in
                 guard let cals = calendars else { return true }
                 return cals.contains(event.calendarName)
             }
             .sorted { $0.startDate < $1.startDate }
+        guard let limit else { return results }
+        return Array(results.prefix(max(0, limit)))
     }
 
     func currentEvent() async throws -> CalendarEvent? {

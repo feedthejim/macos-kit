@@ -53,6 +53,21 @@ struct CalendarWriteServiceTests {
 
         #expect(event.title == "Holiday")
         #expect(event.isAllDay == true)
+        #expect(event.startDate == Calendar.current.startOfDay(for: start))
+        #expect(event.endDate == Calendar.current.date(
+            byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: start)
+        ))
+    }
+
+    @Test("Create rejects an inverted timed range")
+    func createRejectsInvertedRange() async {
+        let mock = MockCalendarWriteService()
+        let request = CreateEventRequest(
+            title: "Invalid", startDate: now, endDate: now.addingTimeInterval(-60)
+        )
+        await #expect(throws: MacKitError.self) {
+            try await mock.createEvent(request)
+        }
     }
 
     // MARK: - deleteEvent
@@ -71,6 +86,17 @@ struct CalendarWriteServiceTests {
 
         #expect(mock.mockEvents.isEmpty)
         #expect(mock.deletedIds == [event.id])
+        #expect(mock.deletedScopes == [.thisEvent])
+    }
+
+    @Test("Delete records future recurring scope")
+    func deleteFutureScope() async throws {
+        let mock = MockCalendarWriteService()
+        let event = try await mock.createEvent(CreateEventRequest(
+            title: "Recurring", startDate: now, endDate: now.addingTimeInterval(3600)
+        ))
+        try await mock.deleteEvent(id: event.id, scope: .futureEvents)
+        #expect(mock.deletedScopes == [.futureEvents])
     }
 
     @Test("Delete non-existent event throws notFound")
@@ -96,10 +122,12 @@ struct CalendarWriteServiceTests {
         let event = try await mock.createEvent(request)
 
         let newStart = now.addingTimeInterval(7200)
+        let newEnd = now.addingTimeInterval(10800)
         let updateRequest = UpdateEventRequest(
             eventId: event.id,
             title: "Updated Title",
             startDate: newStart,
+            endDate: newEnd,
             location: "Room B"
         )
 
@@ -108,7 +136,7 @@ struct CalendarWriteServiceTests {
         #expect(updated.id == event.id)
         #expect(updated.title == "Updated Title")
         #expect(updated.startDate == newStart)
-        #expect(updated.endDate == event.endDate)
+        #expect(updated.endDate == newEnd)
         #expect(updated.location == "Room B")
     }
 
@@ -120,6 +148,44 @@ struct CalendarWriteServiceTests {
 
         await #expect(throws: MacKitError.self) {
             try await mock.updateEvent(request)
+        }
+    }
+
+    @Test("Update can clear location and notes")
+    func updateClearsFields() async throws {
+        let mock = MockCalendarWriteService()
+        let event = try await mock.createEvent(CreateEventRequest(
+            title: "Original", startDate: now, endDate: now.addingTimeInterval(3600),
+            location: "Room A", notes: "Agenda"
+        ))
+        let updated = try await mock.updateEvent(UpdateEventRequest(
+            eventId: event.id, clearLocation: true, clearNotes: true
+        ))
+        #expect(updated.location == nil)
+        #expect(updated.notes == nil)
+    }
+
+    @Test("Update rejects a resulting inverted range")
+    func updateRejectsInvertedRange() async throws {
+        let mock = MockCalendarWriteService()
+        let event = try await mock.createEvent(CreateEventRequest(
+            title: "Original", startDate: now, endDate: now.addingTimeInterval(3600)
+        ))
+        await #expect(throws: MacKitError.self) {
+            try await mock.updateEvent(UpdateEventRequest(
+                eventId: event.id, startDate: now.addingTimeInterval(7200)
+            ))
+        }
+    }
+
+    @Test("Update rejects a blank title")
+    func updateRejectsBlankTitle() async throws {
+        let mock = MockCalendarWriteService()
+        let event = try await mock.createEvent(CreateEventRequest(
+            title: "Original", startDate: now, endDate: now.addingTimeInterval(3600)
+        ))
+        await #expect(throws: MacKitError.self) {
+            try await mock.updateEvent(UpdateEventRequest(eventId: event.id, title: "   "))
         }
     }
 

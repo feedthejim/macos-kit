@@ -69,3 +69,10 @@ public enum MacKitError: LocalizedError, Sendable, Equatable {
         }
     }
 }
+
+func permissionTimeoutError(_ domain: PermissionDomain) -> MacKitError {
+    .systemError(
+        "\(domain.displayName) permission did not respond within 30 seconds. "
+        + "Grant access in System Settings > Privacy & Security > \(domain.settingsPath), then try again."
+    )
+}

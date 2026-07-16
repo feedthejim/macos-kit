@@ -36,9 +36,18 @@ struct CalendarEventTests {
             endDate: Date(timeIntervalSince1970: 1700003600),
             isAllDay: false,
             location: "Room 42",
+            calendarId: "calendar-id",
             calendarName: "Work",
             calendarColor: "#FF0000",
             status: .confirmed,
+            availability: .tentative,
+            isRecurring: true,
+            attendees: [
+                CalendarAttendee(
+                    name: "Jimmy", email: "jimmy@example.com", status: .accepted,
+                    isCurrentUser: true
+                ),
+            ],
             organizer: "boss@example.com",
             notes: "Bring laptop",
             url: "https://example.com",
@@ -89,6 +98,13 @@ struct CalendarEventTests {
     func textDetailMeetingURL() {
         let e = event(meetingURL: "https://zoom.us/j/123456")
         #expect(e.textDetail.contains("https://zoom.us/j/123456"))
+        #expect(e.textDetail.contains(e.startDate.formatted(.dateTime.month(.abbreviated).day())))
+    }
+
+    @Test("Long titles are truncated in text summaries")
+    func longTitleTruncated() {
+        let e = event(title: String(repeating: "x", count: 60))
+        #expect(e.textSummary.contains("…"))
     }
 
     // MARK: - TableRepresentable
@@ -110,5 +126,9 @@ struct CalendarEventTests {
         #expect(fields.contains("notes"))
         #expect(fields.contains("title"))
         #expect(fields.contains("startDate"))
+        #expect(fields.contains("calendarId"))
+        #expect(fields.contains("availability"))
+        #expect(fields.contains("isRecurring"))
+        #expect(fields.contains("attendees"))
     }
 }

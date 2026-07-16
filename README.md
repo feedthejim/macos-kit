@@ -6,20 +6,18 @@ No icalbuddy. Just fast, native Swift.
 
 ## Install
 
-**One-liner:**
+**Release:**
 ```bash
-curl -fsSL https://github.com/feedthejim/macos-kit/releases/latest/download/mackit-macos-universal.tar.gz | tar xz -C /usr/local/bin
-```
-
-**Homebrew:**
-```bash
-brew install feedthejim/tap/mackit
+tmp=$(mktemp -d) && curl -fsSL https://github.com/feedthejim/macos-kit/releases/latest/download/mackit-macos-universal.tar.gz | tar xz -C "$tmp" && "$tmp/install.sh"
 ```
 
 **From source:**
 ```bash
-git clone https://github.com/feedthejim/macos-kit.git && cd macos-kit && swift build -c release && cp .build/release/mackit /usr/local/bin/
+git clone https://github.com/feedthejim/macos-kit.git && cd macos-kit && scripts/install-mackit.sh
 ```
+
+The installer places `MacKit.app` in `~/Applications` and `mackit` in
+`~/.local/bin`. Permission-sensitive commands automatically launch the app.
 
 ## Usage
 
@@ -39,6 +37,7 @@ open $(mackit cal next --url)
 
 # Free time slots
 mackit cal free --date tomorrow --duration 30m
+mackit cal free --work-start 8am --work-end 6pm --buffer 15m -c Work
 
 # Filter by calendar and date range
 mackit cal -c Work --from monday --to friday
@@ -52,7 +51,10 @@ mackit cal move <event-id> --date friday --from 3pm
 
 # Update / delete
 mackit cal update <event-id> --notes "Bring laptop"
+mackit cal update <event-id> --clear-location
+mackit cal update <event-id> --timed --from 9am --to 10am
 mackit cal delete <event-id> --yes
+mackit cal delete <event-id> --scope future --yes
 
 # JSON with field selection
 mackit cal --json title,startDate,meetingURL
@@ -103,6 +105,14 @@ mackit mail read <id> -m INBOX -a iCloud
 # Search
 mackit mail search "invoice"
 mackit mail search "meeting" -a Gmail -n 10
+mackit mail search "invoice" --sender stripe --from monday --to today
+
+# Pagination and thread grouping
+mackit mail list -n 25 --offset 25
+mackit mail list --group-threads
+
+# Attachment metadata without downloading files
+mackit mail list -n 5 --json id,subject,attachmentCount,attachments
 
 # Mailboxes and accounts
 mackit mail mailboxes
@@ -125,12 +135,28 @@ mackit mail delete <id> -a iCloud --yes
 mackit mail list --json id,subject,sender,isRead
 ```
 
+List/search JSON output includes pagination metadata. Field-selected `--json`
+output remains an array for shell pipelines. Partial account failures are
+reported as warnings while successful account results are preserved.
+
 ### Focus / Do Not Disturb
 
 ```bash
 mackit focus
 mackit focus --quiet && echo "DND is on"     # Exit code for scripting
 ```
+
+### Diagnostics
+
+```bash
+mackit doctor
+MACKIT_TIMEOUT=90 mackit mail search "large query"
+```
+
+Hosted commands default to a 45-second deadline. `MACKIT_TIMEOUT` accepts 5 to
+300 seconds. The host caps concurrency and output, cancels disconnected clients,
+and records metadata-only diagnostics in
+`~/Library/Application Support/MacKit/host.jsonl`.
 
 ### Notifications
 
@@ -162,7 +188,7 @@ mackit includes a built-in MCP server for AI agent integration (Claude Code, Cla
 {
   "mcpServers": {
     "mackit": {
-      "command": "/usr/local/bin/mackit",
+      "command": "/Users/YOUR_USERNAME/.local/bin/mackit",
       "args": ["mcp"]
     }
   }
@@ -215,6 +241,10 @@ mackit contacts search "John" --json givenName,emailAddresses
 
 ## Permissions
 
+`MacKit.app` owns the stable macOS permission identity. The CLI and MCP server
+connect to it over a user-only local socket, so access does not depend on which
+terminal or agent launches `mackit`.
+
 | Command     | Permission |
 |------------|-----------|
 | `cal`      | Calendars |
@@ -228,14 +258,18 @@ mackit contacts search "John" --json givenName,emailAddresses
 ## Architecture
 
 ```
-Sources/
-  mackit/          # CLI commands (swift-argument-parser)
-  MacKitCore/      # Library (services, models, MCP server)
-Tests/             # 225 tests across 28 suites
-skills/            # Claude Code skills
+mackit CLI / MCP client
+          │
+          │ private Unix socket
+          ▼
+      MacKit.app
+          │
+          ▼
+Calendar, Reminders, Contacts, Mail, Notifications
 ```
 
-Protocol-based services with full mock support. `MacKitCore` is importable as a library.
+The socket is mode `600` and the host verifies that clients have the same user
+ID. `MacKitCore` remains protocol-based and independently testable with mocks.
 
 ## Requirements
 

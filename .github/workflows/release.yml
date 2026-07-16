@@ -17,15 +17,35 @@ jobs:
 
       - name: Build universal binary
         run: |
-          swift build -c release --arch arm64
-          swift build -c release --arch x86_64
-          mkdir -p release
+          swift build -c release --arch arm64 --scratch-path .build-release-arm64 --product mackit
+          swift build -c release --arch arm64 --scratch-path .build-release-arm64 --product MacKitHost
+          swift build -c release --arch x86_64 --scratch-path .build-release-x86_64 --product mackit
+          swift build -c release --arch x86_64 --scratch-path .build-release-x86_64 --product MacKitHost
+          arm_bin=$(swift build -c release --arch arm64 --scratch-path .build-release-arm64 --show-bin-path)
+          x86_bin=$(swift build -c release --arch x86_64 --scratch-path .build-release-x86_64 --show-bin-path)
+          mkdir -p release/MacKit.app/Contents/{MacOS,Helpers}
           lipo -create \
-            .build/arm64-apple-macosx/release/mackit \
-            .build/x86_64-apple-macosx/release/mackit \
+            "$arm_bin/mackit" \
+            "$x86_bin/mackit" \
             -output release/mackit
+          lipo -create \
+            "$arm_bin/MacKitHost" \
+            "$x86_bin/MacKitHost" \
+            -output release/MacKit.app/Contents/MacOS/MacKitHost
+          cp release/mackit release/MacKit.app/Contents/Helpers/mackit
+          cp Resources/MacKitHost/Info.plist release/MacKit.app/Contents/Info.plist
+          cp scripts/install-release.sh release/install.sh
           chmod +x release/mackit
-          cd release && tar czf mackit-macos-universal.tar.gz mackit
+          chmod +x release/install.sh
+          codesign --force --sign - --options runtime \
+            release/MacKit.app/Contents/Helpers/mackit
+          codesign --force --sign - --options runtime \
+            --entitlements Resources/MacKitHost/MacKitHost.entitlements \
+            --requirements '=designated => identifier "dev.mackit.host"' \
+            release/MacKit.app
+          codesign --verify --deep --strict release/MacKit.app
+          cd release
+          tar czf mackit-macos-universal.tar.gz mackit MacKit.app install.sh
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

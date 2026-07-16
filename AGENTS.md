@@ -8,9 +8,10 @@ Native macOS CLI tool for accessing calendar, reminders, contacts, mail, focus s
 
 ## Architecture
 
-Two-target design:
+Three-target design:
 - `MacKitCore` (library): services, models, output rendering, MCP server. All Apple framework calls behind protocols for testability.
 - `mackit` (executable): thin CLI wrapper using swift-argument-parser.
+- `MacKitHost` (app executable): owns macOS permissions and executes hosted CLI/MCP requests over private local IPC.
 
 Key patterns:
 - **Protocol-based services**: `CalendarServiceProtocol` + `LiveCalendarService` + `MockCalendarService`
@@ -21,14 +22,18 @@ Key patterns:
 - **Output auto-detection**: `isatty(STDOUT_FILENO)` chooses text vs JSON
 - **FieldSelectable protocol**: Static `availableFields` list for `--json` field validation (avoids optional-nil-key problem)
 - **MCP server reuses services**: Single instance per service type, not per tool call
+- **Bounded host execution**: Hosted commands have deadlines, concurrency/output caps, disconnect cancellation, a single-instance lock, and metadata-only JSONL logs
+- **Paged mail queries**: List/search use `MailQuery` + `MailPage`; expensive recipients, bodies, and attachments are opt-in
 
 ## Build & Test
 
 ```bash
 swift build              # Debug build
 swift build -c release   # Release build
-swift test               # Run all 225 tests (no TCC permissions needed)
+swift test               # Unit tests need no TCC permissions
+scripts/install-mackit.sh # Build and install MacKit.app plus the CLI
 mackit --version         # Verify installed binary
+mackit doctor            # Verify app installation, host socket, and log path
 
 # Shell completions
 mackit completions zsh > ~/.zfunc/_mackit
@@ -36,12 +41,17 @@ mackit completions bash > /usr/local/etc/bash_completion.d/mackit
 mackit completions fish > ~/.config/fish/completions/mackit.fish
 ```
 
-Tests use mocks exclusively. No calendar/contacts/reminders/mail access needed in CI.
+Unit tests use mocks exclusively. No calendar/contacts/reminders/mail access is
+needed in CI. Live CLI and MCP integration tests run through the installed
+`MacKit.app`, which owns the stable TCC identity and communicates with the CLI
+over a mode-600 Unix socket in `~/Library/Application Support/MacKit`.
 
 ## Directory Structure
 
 ```
 Sources/mackit/Commands/        # CLI commands (one file per domain + write commands)
+Sources/MacKitHost/             # Permission-owning local host app
+Sources/MacKitCore/Host/        # Host IPC protocol and routing
 Sources/MacKitCore/Services/    # Protocols + Live implementations
 Sources/MacKitCore/Models/      # Codable structs (CalendarEvent, Reminder, Contact, etc.)
 Sources/MacKitCore/Output/      # OutputRenderer, FieldSelection, TextRepresentable
@@ -84,7 +94,9 @@ skills/                         # Claude Code skills (mackit-calendar, mackit-re
 
 ## TCC Permissions
 
-Calendar and Contacts permissions work from most terminals. Reminders has a known issue where Warp.app doesn't trigger the TCC dialog. Users need to run `mackit rem lists` from Terminal.app first, or manually grant in System Settings.
+`MacKit.app` owns Calendar, Reminders, Contacts, Apple Events, and notification
+permissions. The CLI and MCP server must route permission-sensitive work through
+the host so permissions do not depend on Terminal, Warp, Codex, or another parent.
 
 ## MCP Server
 

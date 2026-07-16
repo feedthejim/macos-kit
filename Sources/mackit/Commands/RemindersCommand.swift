@@ -67,15 +67,12 @@ extension RemindersCommand {
                 dueBefore = nil
             }
 
-            var reminders = try await service.reminders(
+            let reminders = try await service.reminders(
                 inList: listName,
                 includeCompleted: completed,
-                dueBefore: dueBefore
+                dueBefore: dueBefore,
+                limit: limit
             )
-
-            if let limit {
-                reminders = Array(reminders.prefix(limit))
-            }
 
             if let jsonFields {
                 let fields = jsonFields.split(separator: ",").map(String.init)

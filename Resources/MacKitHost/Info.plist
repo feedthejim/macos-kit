@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>MacKitHost</string>
+    <key>CFBundleIdentifier</key>
+    <string>dev.mackit.host</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>MacKit</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSBackgroundOnly</key>
+    <true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>MacKit uses automation to read and manage messages in Mail.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>MacKit needs calendar access to read and manage calendar events.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>MacKit needs calendar access to read and manage calendar events.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>MacKit needs contacts access to search contacts and birthdays.</string>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>MacKit needs reminders access to read and manage reminders.</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>MacKit needs reminders access to read and manage reminders.</string>
+</dict>
+</plist>

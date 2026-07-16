@@ -99,6 +99,19 @@ struct DateParsingTests {
         #expect(weekday == 6) // Friday = 6
     }
 
+    @Test("Range end includes the full date")
+    func inclusiveRangeEnd() throws {
+        let parsed = try DateParsing.parse("2026-03-20")
+        let end = try DateParsing.parseRangeEnd("2026-03-20")
+        #expect(end == Calendar.current.date(byAdding: .day, value: 1, to: parsed))
+    }
+
+    @Test("Range end preserves an exact datetime")
+    func exactRangeEnd() throws {
+        #expect(try DateParsing.parseRangeEnd("2026-03-20T15:30")
+            == DateParsing.parse("2026-03-20T15:30"))
+    }
+
     // MARK: - parseTime tests
 
     @Test("Parses '3pm' to hour 15, minute 0")
