@@ -18,18 +18,26 @@ public enum FreeSlotCalculator: Sendable {
         events: [CalendarEvent],
         rangeStart: Date,
         rangeEnd: Date,
-        minDurationMinutes: Int = 0
+        minDurationMinutes: Int = 0,
+        bufferMinutes: Int = 0
     ) -> [FreeSlot] {
+        guard rangeEnd > rangeStart else { return [] }
+        let buffer = TimeInterval(max(0, bufferMinutes) * 60)
         let sorted = events
-            .filter { !$0.isAllDay }
+            .filter {
+                !$0.isAllDay && $0.status != .cancelled && $0.availability != .free
+                    && !$0.attendees.contains { $0.isCurrentUser && $0.status == .declined }
+            }
             .sorted { $0.startDate < $1.startDate }
 
         var slots: [FreeSlot] = []
         var cursor = rangeStart
 
         for event in sorted {
-            let eventStart = max(event.startDate, rangeStart)
-            let eventEnd = min(event.endDate, rangeEnd)
+            let eventStart = max(event.startDate.addingTimeInterval(-buffer), rangeStart)
+            let eventEnd = min(event.endDate.addingTimeInterval(buffer), rangeEnd)
+
+            guard eventEnd > rangeStart, eventStart < rangeEnd else { continue }
 
             if eventStart > cursor {
                 let slot = FreeSlot(start: cursor, end: eventStart)
@@ -51,15 +59,25 @@ public enum FreeSlotCalculator: Sendable {
     }
 
     /// Parse a duration string like "30m", "1h", "90m" into minutes.
-    public static func parseDuration(_ input: String?) -> Int {
+    public static func parseDuration(_ input: String?) throws -> Int {
         guard let input else { return 0 }
         let trimmed = input.lowercased().trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            throw MacKitError.systemError("Duration cannot be empty. Use formats such as 30m or 1h.")
+        }
+
+        let minutes: Int?
         if trimmed.hasSuffix("h") {
-            return (Int(trimmed.dropLast()) ?? 0) * 60
+            minutes = Int(trimmed.dropLast()).map { $0 * 60 }
+        } else if trimmed.hasSuffix("m") {
+            minutes = Int(trimmed.dropLast())
+        } else {
+            minutes = Int(trimmed)
         }
-        if trimmed.hasSuffix("m") {
-            return Int(trimmed.dropLast()) ?? 0
+
+        guard let minutes, minutes >= 0 else {
+            throw MacKitError.systemError("Invalid duration '\(input)'. Use formats such as 30m or 1h.")
         }
-        return Int(trimmed) ?? 0
+        return minutes
     }
 }

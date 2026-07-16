@@ -56,6 +56,21 @@ struct CalendarServiceTests {
         #expect(events.isEmpty)
     }
 
+    @Test("Returns an event that started before but overlaps the range")
+    func overlappingEventInRange() async throws {
+        let mock = MockCalendarService()
+        let start = Date()
+        mock.mockEvents = [CalendarEvent(
+            id: "ongoing", title: "Ongoing",
+            startDate: start.addingTimeInterval(-7200),
+            endDate: start.addingTimeInterval(3600), calendarName: "Work"
+        )]
+        let events = try await mock.events(
+            from: start, to: start.addingTimeInterval(60), calendars: nil
+        )
+        #expect(events.map(\.id) == ["ongoing"])
+    }
+
     @Test("Filters by calendar name")
     func filterByCalendar() async throws {
         let mock = MockCalendarService()
@@ -88,6 +103,37 @@ struct CalendarServiceTests {
             calendars: ["Work", "Personal"]
         )
         #expect(events.count == 2)
+    }
+
+    @Test("Applies event limit after sorting")
+    func eventsRespectLimit() async throws {
+        let mock = MockCalendarService()
+        mock.mockEvents = [
+            event(title: "Third", minutesFromNow: 180),
+            event(title: "First", minutesFromNow: 60),
+            event(title: "Second", minutesFromNow: 120),
+        ]
+
+        let events = try await mock.events(
+            from: now,
+            to: now.addingTimeInterval(300 * 60),
+            calendars: nil,
+            limit: 2
+        )
+
+        #expect(events.map(\.title) == ["First", "Second"])
+    }
+
+    @Test("Rejects calendar ranges larger than 366 days")
+    func rejectsOversizedRange() async {
+        let service = LiveCalendarService()
+        await #expect(throws: MacKitError.self) {
+            try await service.events(
+                from: now,
+                to: now.addingTimeInterval(367 * 24 * 60 * 60),
+                calendars: nil
+            )
+        }
     }
 
     // MARK: - nextEvent()

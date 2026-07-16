@@ -6,6 +6,8 @@ description: Use when accessing the user's macOS calendar, checking upcoming mee
 # mackit calendar
 
 Access macOS calendar events natively via `mackit cal`. Outputs JSON when piped, human text in terminal.
+Calendar permission belongs to `MacKit.app`; the CLI launches it automatically
+and connects over private local IPC.
 
 ## Commands
 
@@ -53,6 +55,10 @@ mackit cal free --date tomorrow --duration 30m
 
 # Check if free for 1 hour
 mackit cal free --duration 1h
+
+# Custom work hours, calendar filter, and meeting buffer
+mackit cal free --date tomorrow --work-start 8am --work-end 6pm \
+  --buffer 15m -c Work
 ```
 
 ### Create event
@@ -80,6 +86,9 @@ mackit cal delete <event-id>
 
 # Skip confirmation
 mackit cal delete <event-id> --yes
+
+# Delete this and future occurrences of a recurring event
+mackit cal delete <event-id> --scope future --yes
 ```
 
 ### Reschedule event
@@ -100,6 +109,10 @@ mackit cal move <event-id> --date monday --from 10am --to 11am
 ```bash
 mackit cal update <event-id> --notes "Updated agenda"
 mackit cal update <event-id> --title "New Title" --location "Room 5"
+mackit cal update <event-id> --clear-location --clear-notes
+mackit cal update <event-id> --calendar Personal
+mackit cal update <event-id> --all-day
+mackit cal update <event-id> --timed --from 9am --to 10am
 ```
 
 ### List calendars
@@ -117,7 +130,7 @@ mackit cal --json title,startDate,meetingURL
 mackit cal --json title,calendarName,location
 ```
 
-**Available fields:** `id`, `title`, `startDate`, `endDate`, `isAllDay`, `location`, `calendarName`, `calendarColor`, `status`, `organizer`, `notes`, `url`, `meetingURL`
+**Available fields:** `id`, `title`, `startDate`, `endDate`, `isAllDay`, `location`, `calendarId`, `calendarName`, `calendarColor`, `status`, `availability`, `isRecurring`, `attendees`, `organizer`, `notes`, `url`, `meetingURL`
 
 The `meetingURL` field automatically extracts Zoom, Google Meet, Teams, Webex, and Around links from event notes/location/URL.
 
@@ -154,8 +167,8 @@ mackit cal --json title,startDate,endDate,meetingURL
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--from DATE` | | Start date (ISO 8601, today, tomorrow, monday, "next week") |
-| `--to DATE` | | End date |
-| `--calendar NAME` | `-c` | Filter by calendar (repeatable) |
+| `--to DATE` | | Inclusive end date |
+| `--calendar NAME_OR_ID` | `-c` | Filter by calendar (repeatable) |
 | `--limit N` | `-l` | Max events |
 | `--include-past` | | Show past events today |
 | `--format FMT` | | json, text, or table |
@@ -163,3 +176,6 @@ mackit cal --json title,startDate,endDate,meetingURL
 | `--url` | | (next only) Print just the meeting URL |
 | `--date DATE` | | (free only) Date to check |
 | `--duration DUR` | | (free only) Minimum slot: 30m, 1h, etc. |
+| `--work-start TIME` | | (free only) Workday start, default 9am |
+| `--work-end TIME` | | (free only) Workday end, default 5pm |
+| `--buffer DUR` | | (free only) Buffer before and after meetings |

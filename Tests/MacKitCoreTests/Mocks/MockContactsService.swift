@@ -5,6 +5,7 @@ final class MockContactsService: ContactsServiceProtocol, @unchecked Sendable {
     var mockContacts: [Contact] = []
     var mockGroups: [ContactGroup] = []
     var shouldDenyPermission = false
+    var lastRequestedFields: Set<String>?
 
     func requestAccess() async throws {
         if shouldDenyPermission {
@@ -12,8 +13,9 @@ final class MockContactsService: ContactsServiceProtocol, @unchecked Sendable {
         }
     }
 
-    func search(query: String, limit: Int?) async throws -> [Contact] {
+    func search(query: String, limit: Int?, fields: Set<String>?) async throws -> [Contact] {
         try await requestAccess()
+        lastRequestedFields = fields
         let lowerQuery = query.lowercased()
         var results = mockContacts.filter {
             $0.givenName.lowercased().contains(lowerQuery)
@@ -25,8 +27,9 @@ final class MockContactsService: ContactsServiceProtocol, @unchecked Sendable {
         return results
     }
 
-    func upcomingBirthdays(withinDays days: Int) async throws -> [Contact] {
+    func upcomingBirthdays(withinDays days: Int, fields: Set<String>?) async throws -> [Contact] {
         try await requestAccess()
+        lastRequestedFields = fields
         return mockContacts.filter { $0.birthday != nil }
     }
 

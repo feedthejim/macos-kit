@@ -2,16 +2,22 @@
 import Foundation
 
 public final class LiveRemindersWriteService: RemindersWriteServiceProtocol, @unchecked Sendable {
+    private static let permissionTimeoutSeconds = 30
+    private static let fetchTimeoutSeconds = 30
     private let store = EKEventStore()
 
     public init() {}
 
     public func requestAccess() async throws {
-        let granted: Bool
-        if #available(macOS 14.0, *) {
-            granted = try await store.requestFullAccessToReminders()
-        } else {
-            granted = try await store.requestAccess(to: .reminder)
+        let granted = try await withAsyncTimeout(
+            seconds: Self.permissionTimeoutSeconds,
+            timeoutError: permissionTimeoutError(.reminders)
+        ) { [self] in
+            if #available(macOS 14.0, *) {
+                return try await store.requestFullAccessToReminders()
+            } else {
+                return try await store.requestAccess(to: .reminder)
+            }
         }
 
         guard granted else {
@@ -127,10 +133,12 @@ public final class LiveRemindersWriteService: RemindersWriteServiceProtocol, @un
     /// the concurrency boundary, which is safe because EventKit synchronizes internally.
     private func fetchEKReminders(matching predicate: NSPredicate) async throws -> [EKReminder] {
         try await withCheckedThrowingContinuation { continuation in
-            store.fetchReminders(matching: predicate) { ekReminders in
+            let gate = ReminderFetchGate<[EKReminder]>(store: store, continuation: continuation)
+            let request = store.fetchReminders(matching: predicate) { ekReminders in
                 nonisolated(unsafe) let result = ekReminders ?? []
-                continuation.resume(returning: result)
+                gate.resume(returning: result)
             }
+            gate.install(fetchRequest: request, timeoutSeconds: Self.fetchTimeoutSeconds)
         }
     }
 

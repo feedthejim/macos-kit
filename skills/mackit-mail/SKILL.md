@@ -24,6 +24,13 @@ mackit mail list -m "Sent Mail" -a Gmail
 
 # Limit results
 mackit mail list -n 5
+
+# Filter by sender and inclusive received-date range
+mackit mail list --sender stripe --from monday --to today
+
+# Fetch the next page, or collapse reply prefixes into threads
+mackit mail list -n 25 --offset 25
+mackit mail list --group-threads
 ```
 
 ### Read a Message
@@ -39,6 +46,7 @@ mackit mail read <id> -m INBOX -a iCloud
 # Search subject and sender
 mackit mail search "invoice"
 mackit mail search "meeting" -m "All Mail" -a Gmail -n 10
+mackit mail search "invoice" --sender stripe --from monday --to today
 ```
 
 ### Mailboxes & Accounts
@@ -80,7 +88,15 @@ mackit mail list --json id,subject,sender,isRead
 mackit mail search "invoice" --json subject,sender,dateReceived
 ```
 
-**Available fields:** `id`, `subject`, `sender`, `dateSent`, `dateReceived`, `isRead`, `mailbox`, `account`, `toRecipients`, `ccRecipients`, `content`, `summary`
+**Available fields:** `id`, `subject`, `sender`, `dateSent`, `dateReceived`, `isRead`, `mailbox`, `account`, `toRecipients`, `ccRecipients`, `messageId`, `replyTo`, `messageSize`, `threadId`, `attachmentCount`, `attachments`, `content`, `summary`
+
+`messageId`, recipients, bodies, and attachment metadata are fetched only when
+requested. Attachments are described but never downloaded or saved by list/search.
+`threadId` is a normalized-subject grouping key, not a server conversation ID.
+
+List and search preserve results from healthy accounts if another account fails.
+Warnings identify skipped accounts. Full JSON uses a page object with `messages`,
+`offset`, `nextOffset`, `partial`, and `warnings`; field-selected JSON stays an array.
 
 ## Common Workflows
 
@@ -102,7 +118,9 @@ mackit mail mark-read <id> -a iCloud
 
 ## Permissions
 
-Mail requires macOS Automation permission. On first use, a system dialog will prompt to allow the terminal to control Mail.app. If denied, grant access in System Settings > Privacy & Security > Automation.
+Mail requires macOS Automation permission. On first use, a system dialog will
+prompt to allow MacKit to control Mail.app. If denied, grant access to MacKit in
+System Settings > Privacy & Security > Automation.
 
 ## Flags Reference
 
@@ -112,6 +130,11 @@ Mail requires macOS Automation permission. On first use, a system dialog will pr
 | `--account NAME` | `-a` | Account name |
 | `--unread` | | Show only unread messages |
 | `--limit N` | `-n` | Max results (default: 25) |
+| `--offset N` | | Skip results for pagination |
+| `--sender TEXT` | | Filter by sender name or address |
+| `--from DATE` | | Received after date |
+| `--to DATE` | | Received through inclusive date |
+| `--group-threads` | | Newest message per normalized subject |
 | `--to ADDR` | | Recipient (repeatable) |
 | `--cc ADDR` | | CC recipient (repeatable) |
 | `--bcc ADDR` | | BCC recipient (repeatable) |

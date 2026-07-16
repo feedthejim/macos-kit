@@ -2,16 +2,22 @@
 import Foundation
 
 public final class LiveRemindersService: RemindersServiceProtocol, @unchecked Sendable {
+    private static let permissionTimeoutSeconds = 30
+    private static let fetchTimeoutSeconds = 30
     private let store = EKEventStore()
 
     public init() {}
 
     public func requestAccess() async throws {
-        let granted: Bool
-        if #available(macOS 14.0, *) {
-            granted = try await store.requestFullAccessToReminders()
-        } else {
-            granted = try await store.requestAccess(to: .reminder)
+        let granted = try await withAsyncTimeout(
+            seconds: Self.permissionTimeoutSeconds,
+            timeoutError: permissionTimeoutError(.reminders)
+        ) { [self] in
+            if #available(macOS 14.0, *) {
+                return try await store.requestFullAccessToReminders()
+            } else {
+                return try await store.requestAccess(to: .reminder)
+            }
         }
 
         guard granted else {
@@ -27,27 +33,24 @@ public final class LiveRemindersService: RemindersServiceProtocol, @unchecked Se
 
     public func lists() async throws -> [ReminderList] {
         let ekCalendars = store.calendars(for: .reminder)
-        var result: [ReminderList] = []
+        let predicate = store.predicateForIncompleteReminders(
+            withDueDateStarting: nil,
+            ending: nil,
+            calendars: nil
+        )
+        let counts = try await fetchReminderCounts(matching: predicate)
 
-        for cal in ekCalendars {
-            let predicate = store.predicateForIncompleteReminders(
-                withDueDateStarting: nil,
-                ending: nil,
-                calendars: [cal]
-            )
-            let count = try await fetchReminders(matching: predicate).count
-            result.append(ReminderList(
+        return ekCalendars.map { cal in
+            ReminderList(
                 id: cal.calendarIdentifier,
                 title: cal.title,
-                count: count,
+                count: counts[cal.calendarIdentifier, default: 0],
                 color: cal.cgColor.flatMap { hexColor(from: $0) }
-            ))
-        }
-
-        return result.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            )
+        }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
-    public func reminders(inList listName: String?, includeCompleted: Bool, dueBefore: Date?) async throws -> [Reminder] {
+    public func reminders(inList listName: String?, includeCompleted: Bool, dueBefore: Date?, limit: Int?) async throws -> [Reminder] {
         let calendars: [EKCalendar]?
         if let listName {
             calendars = store.calendars(for: .reminder).filter { $0.title == listName }
@@ -69,8 +72,10 @@ public final class LiveRemindersService: RemindersServiceProtocol, @unchecked Se
             )
         }
 
-        return try await fetchReminders(matching: predicate)
+        let sorted = try await fetchReminders(matching: predicate)
             .sorted { sortReminders($0, $1) }
+        guard let limit else { return sorted }
+        return Array(sorted.prefix(max(0, limit)))
     }
 
     public func overdueReminders() async throws -> [Reminder] {
@@ -92,10 +97,26 @@ public final class LiveRemindersService: RemindersServiceProtocol, @unchecked Se
     /// avoiding sending non-Sendable EKReminder across concurrency boundaries.
     private func fetchReminders(matching predicate: NSPredicate) async throws -> [Reminder] {
         try await withCheckedThrowingContinuation { continuation in
-            store.fetchReminders(matching: predicate) { [self] ekReminders in
+            let gate = ReminderFetchGate<[Reminder]>(store: store, continuation: continuation)
+            let request = store.fetchReminders(matching: predicate) { [self] ekReminders in
                 let mapped = (ekReminders ?? []).map { self.mapReminder($0) }
-                continuation.resume(returning: mapped)
+                gate.resume(returning: mapped)
             }
+            gate.install(fetchRequest: request, timeoutSeconds: Self.fetchTimeoutSeconds)
+        }
+    }
+
+    private func fetchReminderCounts(matching predicate: NSPredicate) async throws -> [String: Int] {
+        try await withCheckedThrowingContinuation { continuation in
+            let gate = ReminderFetchGate<[String: Int]>(store: store, continuation: continuation)
+            let request = store.fetchReminders(matching: predicate) { ekReminders in
+                var counts: [String: Int] = [:]
+                for reminder in ekReminders ?? [] {
+                    counts[reminder.calendar.calendarIdentifier, default: 0] += 1
+                }
+                gate.resume(returning: counts)
+            }
+            gate.install(fetchRequest: request, timeoutSeconds: Self.fetchTimeoutSeconds)
         }
     }
 

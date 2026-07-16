@@ -85,6 +85,29 @@ struct ContactsServiceTests {
         #expect(results.count == 2)
     }
 
+    @Test("Search forwards requested fields")
+    func searchRequestedFields() async throws {
+        let mock = MockContactsService()
+        mock.mockContacts = [contact(given: "John", family: "Doe", emails: ["john@example.com"])]
+
+        _ = try await mock.search(
+            query: "john",
+            limit: nil,
+            fields: ["givenName", "emailAddresses"]
+        )
+
+        #expect(mock.lastRequestedFields == ["givenName", "emailAddresses"])
+    }
+
+    @Test("Search defaults to all fields")
+    func searchDefaultsToAllFields() async throws {
+        let mock = MockContactsService()
+
+        _ = try await mock.search(query: "john", limit: nil)
+
+        #expect(mock.lastRequestedFields == nil)
+    }
+
     // MARK: - Permission handling
 
     @Test("Permission denied throws correct error")

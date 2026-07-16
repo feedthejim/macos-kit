@@ -107,11 +107,60 @@ struct FreeTimeSlotsTests {
     }
 
     @Test("parseDuration handles various formats")
-    func parseDuration() {
-        #expect(FreeSlotCalculator.parseDuration("30m") == 30)
-        #expect(FreeSlotCalculator.parseDuration("1h") == 60)
-        #expect(FreeSlotCalculator.parseDuration("90m") == 90)
-        #expect(FreeSlotCalculator.parseDuration(nil) == 0)
-        #expect(FreeSlotCalculator.parseDuration("2h") == 120)
+    func parseDuration() throws {
+        #expect(try FreeSlotCalculator.parseDuration("30m") == 30)
+        #expect(try FreeSlotCalculator.parseDuration("1h") == 60)
+        #expect(try FreeSlotCalculator.parseDuration("90m") == 90)
+        #expect(try FreeSlotCalculator.parseDuration(nil) == 0)
+        #expect(try FreeSlotCalculator.parseDuration("2h") == 120)
+    }
+
+    @Test("parseDuration rejects invalid values")
+    func invalidDuration() {
+        #expect(throws: MacKitError.self) {
+            try FreeSlotCalculator.parseDuration("3x")
+        }
+    }
+
+    @Test("Cancelled and free events do not block time")
+    func nonBlockingEvents() {
+        let cancelled = CalendarEvent(
+            id: "cancelled", title: "Cancelled", startDate: today(hour: 9),
+            endDate: today(hour: 10), calendarName: "Work", status: .cancelled
+        )
+        let free = CalendarEvent(
+            id: "free", title: "FYI", startDate: today(hour: 10),
+            endDate: today(hour: 11), calendarName: "Work", availability: .free
+        )
+        let slots = FreeSlotCalculator.calculate(
+            events: [cancelled, free], rangeStart: today(hour: 9), rangeEnd: today(hour: 17)
+        )
+        #expect(slots.count == 1)
+        #expect(slots[0].durationMinutes == 480)
+    }
+
+    @Test("Events declined by the current user do not block time")
+    func declinedInvitation() {
+        let declined = CalendarEvent(
+            id: "declined", title: "Optional meeting", startDate: today(hour: 10),
+            endDate: today(hour: 11), calendarName: "Work",
+            attendees: [CalendarAttendee(status: .declined, isCurrentUser: true)]
+        )
+        let slots = FreeSlotCalculator.calculate(
+            events: [declined], rangeStart: today(hour: 9), rangeEnd: today(hour: 17)
+        )
+        #expect(slots.count == 1)
+        #expect(slots[0].durationMinutes == 480)
+    }
+
+    @Test("Meeting buffer expands busy intervals")
+    func meetingBuffer() {
+        let slots = FreeSlotCalculator.calculate(
+            events: [event(from: 10, to: 11)],
+            rangeStart: today(hour: 9), rangeEnd: today(hour: 17), bufferMinutes: 15
+        )
+        #expect(slots.count == 2)
+        #expect(slots[0].durationMinutes == 45)
+        #expect(slots[1].durationMinutes == 345)
     }
 }

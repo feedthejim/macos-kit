@@ -12,6 +12,9 @@ public enum OutputFormat: String, CaseIterable, Sendable {
     case table
 
     public static var auto: OutputFormat {
-        isatty(STDOUT_FILENO) != 0 ? .text : .json
+        if let forwardedTTY = ProcessInfo.processInfo.environment["MACKIT_STDOUT_IS_TTY"] {
+            return forwardedTTY == "1" ? .text : .json
+        }
+        return isatty(STDOUT_FILENO) != 0 ? .text : .json
     }
 }

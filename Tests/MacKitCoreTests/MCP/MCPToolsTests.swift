@@ -67,12 +67,12 @@ struct MCPToolsTests {
 
     // MARK: - Known Tool Required Fields
 
-    @Test("calendar_create requires title, date, startTime, endTime")
+    @Test("calendar_create requires title and date")
     func calendarCreateRequiredFields() {
         let tool = MCPTools.allTools.first { $0.name == "calendar_create" }
         #expect(tool != nil, "calendar_create tool should exist")
         let required = tool!.inputSchema["required"] as? [String] ?? []
-        let expectedRequired: Set<String> = ["title", "date", "startTime", "endTime"]
+        let expectedRequired: Set<String> = ["title", "date"]
         #expect(Set(required) == expectedRequired)
     }
 

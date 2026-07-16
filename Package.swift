@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .executable(name: "mackit", targets: ["mackit"]),
+        .executable(name: "MacKitHost", targets: ["MacKitHost"]),
         .library(name: "MacKitCore", targets: ["MacKitCore"]),
     ],
     dependencies: [
@@ -28,6 +29,10 @@ let package = Package(
                 .linkedFramework("UserNotifications"),
                 .linkedFramework("ScriptingBridge"),
             ]
+        ),
+        .executableTarget(
+            name: "MacKitHost",
+            dependencies: ["MacKitCore"]
         ),
         .testTarget(
             name: "MacKitCoreTests",

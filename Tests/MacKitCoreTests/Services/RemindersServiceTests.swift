@@ -63,6 +63,25 @@ struct RemindersServiceTests {
         #expect(result.allSatisfy { $0.listName == "Shopping" })
     }
 
+    @Test("Applies reminder limit in the service")
+    func respectsLimit() async throws {
+        let mock = MockRemindersService()
+        mock.mockReminders = [
+            reminder(title: "A"),
+            reminder(title: "B"),
+            reminder(title: "C"),
+        ]
+
+        let result = try await mock.reminders(
+            inList: nil,
+            includeCompleted: false,
+            dueBefore: nil,
+            limit: 2
+        )
+
+        #expect(result.map(\.title) == ["A", "B"])
+    }
+
     // MARK: - overdueReminders()
 
     @Test("Returns reminders past due date that are incomplete")

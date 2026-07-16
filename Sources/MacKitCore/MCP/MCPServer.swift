@@ -148,22 +148,21 @@ public final class MCPServer: @unchecked Sendable {
         let startDate = try DateParsing.parse(fromStr)
         let endDate: Date
         if let toStr = args["to"]?.stringValue {
-            endDate = try DateParsing.parse(toStr)
+            endDate = try DateParsing.parseRangeEnd(toStr)
         } else {
             endDate = calendar.date(byAdding: .day, value: 1, to: startDate)!
         }
 
         let calFilter = args["calendar"]?.stringValue.map { [$0] }
-        var events = try await calendarService.events(from: startDate, to: endDate, calendars: calFilter)
-
         let includePast = args["includePast"]?.boolValue ?? false
-        if !includePast && calendar.isDateInToday(startDate) {
-            events = events.filter { $0.endDate > Date() }
-        }
-
-        if let limit = args["limit"]?.intValue {
-            events = Array(events.prefix(limit))
-        }
+        let queryStart = !includePast && calendar.isDateInToday(startDate)
+            ? max(startDate, Date()) : startDate
+        let events = try await calendarService.events(
+            from: queryStart,
+            to: endDate,
+            calendars: calFilter,
+            limit: args["limit"]?.intValue
+        )
 
         let extraFields = parseFields(args["fields"]?.stringValue)
         return MCPToolResult(text: try compactEvents(events, extraFields: extraFields))
@@ -185,18 +184,33 @@ public final class MCPServer: @unchecked Sendable {
         let dateStr = args["date"]?.stringValue ?? "today"
         let targetDate = try DateParsing.parse(dateStr)
         let dayStart = cal.startOfDay(for: targetDate)
-        let rangeStart = max(cal.date(bySettingHour: 9, minute: 0, second: 0, of: dayStart)!, Date())
-        let rangeEnd = cal.date(bySettingHour: 17, minute: 0, second: 0, of: dayStart)!
+        guard dayStart >= cal.startOfDay(for: Date()) else {
+            throw MacKitError.systemError("Free-slot dates cannot be in the past.")
+        }
+
+        let workStart = try timeOnDate(args["workStart"]?.stringValue ?? "9am", date: dayStart)
+        let rangeEnd = try timeOnDate(args["workEnd"]?.stringValue ?? "5pm", date: dayStart)
+        guard rangeEnd > workStart else {
+            throw MacKitError.systemError("workEnd must be after workStart.")
+        }
+        let rangeStart = cal.isDateInToday(dayStart) ? max(workStart, Date()) : workStart
 
         guard rangeStart < rangeEnd else {
             return MCPToolResult(text: "No working hours remaining")
         }
 
-        let events = try await calendarService.events(from: dayStart, to: rangeEnd, calendars: nil)
+        let calendarFilter = args["calendar"]?.stringValue.map { [$0] }
+        let events = try await calendarService.events(
+            from: rangeStart, to: rangeEnd, calendars: calendarFilter
+        )
         let minDuration = args["minDuration"]?.intValue ?? 0
+        let bufferMinutes = args["bufferMinutes"]?.intValue ?? 0
+        guard minDuration >= 0, bufferMinutes >= 0 else {
+            throw MacKitError.systemError("Durations and buffers cannot be negative.")
+        }
         let slots = FreeSlotCalculator.calculate(
             events: events, rangeStart: rangeStart, rangeEnd: rangeEnd,
-            minDurationMinutes: minDuration
+            minDurationMinutes: minDuration, bufferMinutes: bufferMinutes
         )
 
         let jsonSlots = slots.map { [
@@ -221,15 +235,30 @@ public final class MCPServer: @unchecked Sendable {
     private func handleCalendarCreate(_ args: [String: JSONValue]) async throws -> MCPToolResult {
         let service = calendarWriteService
         guard let title = args["title"]?.stringValue,
-              let dateStr = args["date"]?.stringValue,
-              let startTimeStr = args["startTime"]?.stringValue,
-              let endTimeStr = args["endTime"]?.stringValue else {
-            return MCPToolResult(text: "Missing required: title, date, startTime, endTime", isError: true)
+              let dateStr = args["date"]?.stringValue else {
+            return MCPToolResult(text: "Missing required: title, date", isError: true)
         }
 
         let allDay = args["allDay"]?.boolValue ?? false
-        let startDate = try DateParsing.parseDateTime(dateStr, time: allDay ? "9am" : startTimeStr)
-        let endDate = try DateParsing.parseDateTime(dateStr, time: allDay ? "5pm" : endTimeStr)
+        let startDate: Date
+        let endDate: Date
+        if allDay {
+            startDate = Calendar.current.startOfDay(for: try DateParsing.parse(dateStr))
+            endDate = Calendar.current.date(byAdding: .day, value: 1, to: startDate)!
+        } else {
+            guard let startTime = args["startTime"]?.stringValue,
+                  let endTime = args["endTime"]?.stringValue else {
+                return MCPToolResult(
+                    text: "startTime and endTime are required unless allDay is true",
+                    isError: true
+                )
+            }
+            startDate = try DateParsing.parseDateTime(dateStr, time: startTime)
+            endDate = try DateParsing.parseDateTime(dateStr, time: endTime)
+            guard endDate > startDate else {
+                throw MacKitError.systemError("Event end time must be after its start time.")
+            }
+        }
 
         let request = CreateEventRequest(
             title: title, startDate: startDate, endDate: endDate,
@@ -248,7 +277,7 @@ public final class MCPServer: @unchecked Sendable {
             return MCPToolResult(text: "Missing required: eventId", isError: true)
         }
         let service = calendarWriteService
-        try await service.deleteEvent(id: eventId)
+        try await service.deleteEvent(id: eventId, scope: try mutationScope(args["scope"]?.stringValue))
         return MCPToolResult(text: "{\"deleted\": true, \"eventId\": \"\(eventId)\"}")
     }
 
@@ -257,11 +286,50 @@ public final class MCPServer: @unchecked Sendable {
             return MCPToolResult(text: "Missing required: eventId", isError: true)
         }
         let service = calendarWriteService
+        let hasUpdate = args["title"] != nil || args["location"] != nil || args["notes"] != nil
+            || args["clearLocation"]?.boolValue == true || args["clearNotes"]?.boolValue == true
+            || args["calendar"] != nil || args["allDay"] != nil
+        guard hasUpdate else {
+            return MCPToolResult(text: "Specify at least one field to update", isError: true)
+        }
+        var startDate: Date?
+        var endDate: Date?
+        if args["allDay"]?.boolValue == false {
+            guard let startTime = args["startTime"]?.stringValue,
+                  let endTime = args["endTime"]?.stringValue else {
+                return MCPToolResult(
+                    text: "Converting to a timed event requires startTime and endTime",
+                    isError: true
+                )
+            }
+            let existing = try await service.findEvent(id: eventId)
+            let eventDate = try args["date"]?.stringValue.map { try DateParsing.parse($0) }
+                ?? existing.startDate
+            let newStart = try timeOnDate(startTime, date: eventDate)
+            let newEnd = try timeOnDate(endTime, date: eventDate)
+            guard newEnd > newStart else {
+                throw MacKitError.systemError("endTime must be after startTime.")
+            }
+            startDate = newStart
+            endDate = newEnd
+        } else if args["date"] != nil || args["startTime"] != nil || args["endTime"] != nil {
+            return MCPToolResult(
+                text: "date, startTime, and endTime are only valid when allDay is false",
+                isError: true
+            )
+        }
         let request = UpdateEventRequest(
             eventId: eventId,
             title: args["title"]?.stringValue,
+            startDate: startDate,
+            endDate: endDate,
             location: args["location"]?.stringValue,
-            notes: args["notes"]?.stringValue
+            notes: args["notes"]?.stringValue,
+            clearLocation: args["clearLocation"]?.boolValue ?? false,
+            clearNotes: args["clearNotes"]?.boolValue ?? false,
+            calendarName: args["calendar"]?.stringValue,
+            isAllDay: args["allDay"]?.boolValue,
+            scope: try mutationScope(args["scope"]?.stringValue)
         )
         let event = try await service.updateEvent(request)
         return MCPToolResult(text: try compactEvent(event))
@@ -271,6 +339,9 @@ public final class MCPServer: @unchecked Sendable {
         guard let eventId = args["eventId"]?.stringValue else {
             return MCPToolResult(text: "Missing required: eventId", isError: true)
         }
+        guard args["date"] != nil || args["startTime"] != nil || args["endTime"] != nil else {
+            return MCPToolResult(text: "Specify date, startTime, or endTime", isError: true)
+        }
 
         let service = calendarWriteService
         let existing = try await service.findEvent(id: eventId)
@@ -279,28 +350,92 @@ public final class MCPServer: @unchecked Sendable {
         var newEnd = existing.endDate
         let duration = existing.endDate.timeIntervalSince(existing.startDate)
 
+        if existing.isAllDay && (args["startTime"] != nil || args["endTime"] != nil) {
+            throw MacKitError.systemError("All-day events can only be moved by date.")
+        }
+
         if let dateStr = args["date"]?.stringValue {
             let baseDate = try DateParsing.parse(dateStr)
-            let startComponents = Calendar.current.dateComponents([.hour, .minute], from: newStart)
-            newStart = Calendar.current.date(bySettingHour: startComponents.hour!,
-                minute: startComponents.minute!, second: 0, of: baseDate)!
-            newEnd = newStart.addingTimeInterval(duration)
+            if existing.isAllDay {
+                let oldStart = Calendar.current.startOfDay(for: existing.startDate)
+                let oldEnd = Calendar.current.startOfDay(for: existing.endDate)
+                let dayCount = max(
+                    1,
+                    Calendar.current.dateComponents([.day], from: oldStart, to: oldEnd).day ?? 1
+                )
+                newStart = Calendar.current.startOfDay(for: baseDate)
+                guard let movedEnd = Calendar.current.date(
+                    byAdding: .day, value: dayCount, to: newStart
+                ) else {
+                    throw MacKitError.systemError("The requested all-day range does not exist.")
+                }
+                newEnd = movedEnd
+            } else {
+                let startComponents = Calendar.current.dateComponents([.hour, .minute], from: newStart)
+                guard let hour = startComponents.hour, let minute = startComponents.minute,
+                      let moved = Calendar.current.date(
+                        bySettingHour: hour, minute: minute, second: 0, of: baseDate
+                      ) else {
+                    throw MacKitError.systemError("The requested date/time does not exist.")
+                }
+                newStart = moved
+                newEnd = newStart.addingTimeInterval(duration)
+            }
         }
         if let startTimeStr = args["startTime"]?.stringValue {
             let time = try DateParsing.parseTime(startTimeStr)
             let tc = Calendar.current.dateComponents([.hour, .minute], from: time)
-            newStart = Calendar.current.date(bySettingHour: tc.hour!, minute: tc.minute!, second: 0, of: newStart)!
+            guard let hour = tc.hour, let minute = tc.minute,
+                  let moved = Calendar.current.date(
+                    bySettingHour: hour, minute: minute, second: 0, of: newStart
+                  ) else {
+                throw MacKitError.systemError("The requested start time does not exist.")
+            }
+            newStart = moved
             newEnd = newStart.addingTimeInterval(duration)
         }
         if let endTimeStr = args["endTime"]?.stringValue {
             let time = try DateParsing.parseTime(endTimeStr)
             let tc = Calendar.current.dateComponents([.hour, .minute], from: time)
-            newEnd = Calendar.current.date(bySettingHour: tc.hour!, minute: tc.minute!, second: 0, of: newStart)!
+            guard let hour = tc.hour, let minute = tc.minute,
+                  let moved = Calendar.current.date(
+                    bySettingHour: hour, minute: minute, second: 0, of: newStart
+                  ) else {
+                throw MacKitError.systemError("The requested end time does not exist.")
+            }
+            newEnd = moved
+        }
+
+        guard newEnd > newStart else {
+            throw MacKitError.systemError("Event end time must be after its start time.")
         }
 
         let updated = try await service.updateEvent(
-            UpdateEventRequest(eventId: eventId, startDate: newStart, endDate: newEnd))
+            UpdateEventRequest(
+                eventId: eventId, startDate: newStart, endDate: newEnd,
+                scope: try mutationScope(args["scope"]?.stringValue)
+            ))
         return MCPToolResult(text: try compactEvent(updated))
+    }
+
+    private func mutationScope(_ value: String?) throws -> EventMutationScope {
+        switch value?.lowercased() ?? "this" {
+        case "this", "this-event": return .thisEvent
+        case "future", "future-events": return .futureEvents
+        default: throw MacKitError.systemError("scope must be 'this' or 'future'.")
+        }
+    }
+
+    private func timeOnDate(_ value: String, date: Date) throws -> Date {
+        let time = try DateParsing.parseTime(value)
+        let components = Calendar.current.dateComponents([.hour, .minute], from: time)
+        guard let hour = components.hour, let minute = components.minute,
+              let result = Calendar.current.date(
+                bySettingHour: hour, minute: minute, second: 0, of: date
+              ) else {
+            throw MacKitError.systemError("Time '\(value)' does not exist on the requested date.")
+        }
+        return result
     }
 
     // MARK: - Reminders Read Handlers
@@ -311,10 +446,10 @@ public final class MCPServer: @unchecked Sendable {
         let reminders = try await remindersService.reminders(
             inList: args["list"]?.stringValue,
             includeCompleted: args["includeCompleted"]?.boolValue ?? false,
-            dueBefore: dueBefore
+            dueBefore: dueBefore,
+            limit: args["limit"]?.intValue
         )
-        let limited = args["limit"]?.intValue.map { Array(reminders.prefix($0)) } ?? reminders
-        return MCPToolResult(text: try jsonString(limited))
+        return MCPToolResult(text: try jsonString(reminders))
     }
 
     private func handleRemindersOverdue(_ args: [String: JSONValue]) async throws -> MCPToolResult {
@@ -418,28 +553,41 @@ public final class MCPServer: @unchecked Sendable {
     // MARK: - Mail Read Handlers
 
     private func handleMailList(_ args: [String: JSONValue]) async throws -> MCPToolResult {
-        let messages = try await mailService.messages(
-            mailbox: args["mailbox"]?.stringValue,
-            account: args["account"]?.stringValue,
-            limit: args["limit"]?.intValue ?? 25,
-            unreadOnly: args["unreadOnly"]?.boolValue ?? false
-        )
         let extraFields = parseFields(args["fields"]?.stringValue)
-        return MCPToolResult(text: try compactMessages(messages, extraFields: extraFields))
+        let page = try await mailService.queryMessages(try mailQuery(args, search: nil, fields: extraFields))
+        return MCPToolResult(text: try compactMailPage(page, extraFields: extraFields))
     }
 
     private func handleMailSearch(_ args: [String: JSONValue]) async throws -> MCPToolResult {
         guard let query = args["query"]?.stringValue else {
             return MCPToolResult(text: "Missing required: query", isError: true)
         }
-        let messages = try await mailService.searchMessages(
-            query: query,
+        let extraFields = parseFields(args["fields"]?.stringValue)
+        let page = try await mailService.queryMessages(try mailQuery(args, search: query, fields: extraFields))
+        return MCPToolResult(text: try compactMailPage(page, extraFields: extraFields))
+    }
+
+    private func mailQuery(
+        _ args: [String: JSONValue], search: String?, fields: Set<String>
+    ) throws -> MailQuery {
+        let limit = args["limit"]?.intValue ?? 25
+        let offset = args["offset"]?.intValue ?? 0
+        guard (1...200).contains(limit), offset >= 0 else {
+            throw MacKitError.systemError("limit must be 1...200 and offset cannot be negative.")
+        }
+        return MailQuery(
+            search: search,
             mailbox: args["mailbox"]?.stringValue,
             account: args["account"]?.stringValue,
-            limit: args["limit"]?.intValue ?? 25
+            sender: args["sender"]?.stringValue,
+            receivedAfter: try args["from"]?.stringValue.map { try DateParsing.parse($0) },
+            receivedBefore: try args["to"]?.stringValue.map { try DateParsing.parseRangeEnd($0) },
+            unreadOnly: args["unreadOnly"]?.boolValue ?? false,
+            limit: limit,
+            offset: offset,
+            includeDetails: !MailMessage.detailFields.isDisjoint(with: fields),
+            requestedFields: fields
         )
-        let extraFields = parseFields(args["fields"]?.stringValue)
-        return MCPToolResult(text: try compactMessages(messages, extraFields: extraFields))
     }
 
     private func handleMailRead(_ args: [String: JSONValue]) async throws -> MCPToolResult {
@@ -537,12 +685,26 @@ public final class MCPServer: @unchecked Sendable {
                 },
                 "meetingURL": e.meetingURL,
                 "status": e.status.rawValue,
+                "availability": e.availability.rawValue,
+                "recurring": e.isRecurring ? true : nil,
             ]
             // Extra fields, only included when requested
             if extraFields.contains("notes") { dict["notes"] = e.notes }
             if extraFields.contains("organizer") { dict["organizer"] = e.organizer }
             if extraFields.contains("calendarColor") { dict["calendarColor"] = e.calendarColor }
             if extraFields.contains("url") { dict["url"] = e.url }
+            if extraFields.contains("calendarId") { dict["calendarId"] = e.calendarId }
+            if extraFields.contains("attendees") {
+                dict["attendees"] = e.attendees.map { attendee in
+                    var value: [String: Any] = [
+                        "status": attendee.status.rawValue,
+                        "isCurrentUser": attendee.isCurrentUser,
+                    ]
+                    if let name = attendee.name { value["name"] = name }
+                    if let email = attendee.email { value["email"] = email }
+                    return value
+                }
+            }
             return dict
         }.map { dict in dict.compactMapValues { $0 } }
         let data = try JSONSerialization.data(withJSONObject: compact, options: [.sortedKeys])
@@ -574,10 +736,39 @@ public final class MCPServer: @unchecked Sendable {
             if extraFields.contains("toRecipients") { dict["toRecipients"] = m.toRecipients }
             if extraFields.contains("ccRecipients") { dict["ccRecipients"] = m.ccRecipients }
             if extraFields.contains("summary") { dict["summary"] = m.summary }
+            if extraFields.contains("messageId") { dict["messageId"] = m.messageId }
+            if extraFields.contains("replyTo") { dict["replyTo"] = m.replyTo }
+            if extraFields.contains("messageSize") { dict["messageSize"] = m.messageSize }
+            if extraFields.contains("attachments") { dict["attachments"] = m.attachments.map { attachment in
+                var value: [String: Any] = [
+                    "id": attachment.id,
+                    "name": attachment.name,
+                    "sizeBytes": attachment.sizeBytes,
+                    "downloaded": attachment.isDownloaded,
+                ]
+                if let mimeType = attachment.mimeType { value["mimeType"] = mimeType }
+                return value
+            } }
+            dict["threadId"] = m.threadId
+            if m.attachmentCount > 0 { dict["attachmentCount"] = m.attachmentCount }
             return dict
         }.map { dict in dict.compactMapValues { $0 } }
         let data = try JSONSerialization.data(withJSONObject: compact, options: [.sortedKeys])
         return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    private func compactMailPage(_ page: MailPage, extraFields: Set<String>) throws -> String {
+        let messagesData = Data(try compactMessages(page.messages, extraFields: extraFields).utf8)
+        let messages = try JSONSerialization.jsonObject(with: messagesData)
+        var value: [String: Any] = [
+            "messages": messages,
+            "offset": page.offset,
+            "partial": page.isPartial,
+        ]
+        if let nextOffset = page.nextOffset { value["nextOffset"] = nextOffset }
+        if !page.warnings.isEmpty { value["warnings"] = page.warnings }
+        let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "{}"
     }
 
     private func jsonString<T: Encodable>(_ value: T) throws -> String {

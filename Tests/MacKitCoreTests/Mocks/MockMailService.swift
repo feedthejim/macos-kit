@@ -7,6 +7,7 @@ final class MockMailService: MailServiceProtocol, @unchecked Sendable {
     var mockMessages: [MailMessage] = []
     var shouldFail = false
     var isRunning = true
+    var lastIncludeDetails = false
 
     func ensureRunning() async throws {
         if !isRunning {
@@ -27,8 +28,33 @@ final class MockMailService: MailServiceProtocol, @unchecked Sendable {
         return mockMailboxes
     }
 
-    func messages(mailbox: String?, account: String?, limit: Int, unreadOnly: Bool) async throws -> [MailMessage] {
+    func queryMessages(_ query: MailQuery) async throws -> MailPage {
         try await ensureRunning()
+        lastIncludeDetails = query.includeDetails
+        var results = mockMessages
+        if let mailbox = query.mailbox { results = results.filter { $0.mailbox == mailbox } }
+        if let account = query.account { results = results.filter { $0.account == account } }
+        if let sender = query.sender?.lowercased() {
+            results = results.filter { $0.sender.lowercased().contains(sender) }
+        }
+        if let after = query.receivedAfter { results = results.filter { $0.dateReceived > after } }
+        if let before = query.receivedBefore { results = results.filter { $0.dateReceived < before } }
+        if query.unreadOnly { results = results.filter { !$0.isRead } }
+        if let search = query.search?.lowercased() {
+            results = results.filter {
+                $0.subject.lowercased().contains(search) || $0.sender.lowercased().contains(search)
+            }
+        }
+        results.sort { $0.dateReceived > $1.dateReceived }
+        let page = Array(results.dropFirst(query.offset).prefix(query.limit))
+        let nextOffset = results.count > query.offset + page.count
+            ? query.offset + page.count : nil
+        return MailPage(messages: page, offset: query.offset, nextOffset: nextOffset)
+    }
+
+    func messages(mailbox: String?, account: String?, limit: Int, unreadOnly: Bool, includeDetails: Bool) async throws -> [MailMessage] {
+        try await ensureRunning()
+        lastIncludeDetails = includeDetails
         var results = mockMessages
         if let mailbox { results = results.filter { $0.mailbox == mailbox } }
         if let account { results = results.filter { $0.account == account } }
@@ -36,8 +62,9 @@ final class MockMailService: MailServiceProtocol, @unchecked Sendable {
         return Array(results.prefix(limit))
     }
 
-    func searchMessages(query: String, mailbox: String?, account: String?, limit: Int) async throws -> [MailMessage] {
+    func searchMessages(query: String, mailbox: String?, account: String?, limit: Int, includeDetails: Bool) async throws -> [MailMessage] {
         try await ensureRunning()
+        lastIncludeDetails = includeDetails
         let lowerQuery = query.lowercased()
         var results = mockMessages.filter {
             $0.subject.lowercased().contains(lowerQuery)

@@ -60,7 +60,19 @@ extension ContactsCommand {
             let service = LiveContactsService()
             try await service.requestAccess()
 
-            var contacts = try await service.search(query: query, limit: limit)
+            var requestedFields: Set<String>?
+            if email {
+                requestedFields = ["emailAddresses"]
+            } else if phone {
+                requestedFields = ["phoneNumbers"]
+            } else if let jsonFields {
+                requestedFields = Set(jsonFields.split(separator: ",").map(String.init))
+            }
+            if org != nil {
+                requestedFields?.insert("organizationName")
+            }
+
+            var contacts = try await service.search(query: query, limit: limit, fields: requestedFields)
 
             if let org {
                 contacts = contacts.filter {
@@ -131,7 +143,9 @@ extension ContactsCommand {
             let service = LiveContactsService()
             try await service.requestAccess()
 
-            let contacts = try await service.upcomingBirthdays(withinDays: days)
+            let requestedFields: Set<String>? = globals.effectiveFormat == .text
+                ? ["givenName", "familyName", "birthday"] : nil
+            let contacts = try await service.upcomingBirthdays(withinDays: days, fields: requestedFields)
 
             switch globals.effectiveFormat {
             case .json:

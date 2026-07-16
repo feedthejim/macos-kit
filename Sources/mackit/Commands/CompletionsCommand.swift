@@ -31,7 +31,7 @@ struct CompletionsCommand: ParsableCommand {
         default:
             throw ValidationError("Unknown shell '\(shell)'. Use: zsh, bash, or fish")
         }
-        let script = MacKit.completionScript(for: shellType)
+        let script = MacKitCommand.completionScript(for: shellType)
         print(script)
     }
 }

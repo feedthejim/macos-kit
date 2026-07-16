@@ -1,10 +1,33 @@
 import Foundation
 
+public struct MailAttachment: Codable, Sendable, Equatable {
+    public let id: String
+    public let name: String
+    public let mimeType: String?
+    public let sizeBytes: Int
+    public let isDownloaded: Bool
+
+    public init(
+        id: String, name: String, mimeType: String? = nil,
+        sizeBytes: Int = 0, isDownloaded: Bool = false
+    ) {
+        self.id = id
+        self.name = name
+        self.mimeType = mimeType
+        self.sizeBytes = sizeBytes
+        self.isDownloaded = isDownloaded
+    }
+}
+
 public struct MailMessage: Codable, Sendable, Equatable, FieldSelectable {
     public static let availableFields = [
         "id", "subject", "sender", "dateSent", "dateReceived",
         "isRead", "mailbox", "account", "toRecipients", "ccRecipients",
-        "content", "summary",
+        "messageId", "replyTo", "messageSize", "threadId", "attachmentCount",
+        "attachments", "content", "summary",
+    ]
+    public static let detailFields: Set<String> = [
+        "toRecipients", "ccRecipients", "attachmentCount", "attachments", "content", "summary",
     ]
 
     public let id: String
@@ -17,6 +40,12 @@ public struct MailMessage: Codable, Sendable, Equatable, FieldSelectable {
     public let account: String
     public let toRecipients: [String]
     public let ccRecipients: [String]
+    public let messageId: String?
+    public let replyTo: String?
+    public let messageSize: Int?
+    public let threadId: String
+    public let attachmentCount: Int
+    public let attachments: [MailAttachment]
     public let content: String?
     public let summary: String?
 
@@ -31,6 +60,12 @@ public struct MailMessage: Codable, Sendable, Equatable, FieldSelectable {
         account: String = "",
         toRecipients: [String] = [],
         ccRecipients: [String] = [],
+        messageId: String? = nil,
+        replyTo: String? = nil,
+        messageSize: Int? = nil,
+        threadId: String? = nil,
+        attachmentCount: Int = 0,
+        attachments: [MailAttachment] = [],
         content: String? = nil,
         summary: String? = nil
     ) {
@@ -44,6 +79,12 @@ public struct MailMessage: Codable, Sendable, Equatable, FieldSelectable {
         self.account = account
         self.toRecipients = toRecipients
         self.ccRecipients = ccRecipients
+        self.messageId = messageId
+        self.replyTo = replyTo
+        self.messageSize = messageSize
+        self.threadId = threadId ?? MailThreading.normalizedSubject(subject)
+        self.attachmentCount = attachmentCount
+        self.attachments = attachments
         self.content = content
         self.summary = summary
     }
@@ -68,11 +109,86 @@ extension MailMessage: TextRepresentable {
         lines.append("  Date:     \(DateFormatter.shortDate.string(from: dateReceived))")
         lines.append("  Mailbox:  \(mailbox) (\(account))")
         lines.append("  Read:     \(isRead ? "yes" : "no")")
+        if attachmentCount > 0 {
+            lines.append("  Attachments: \(attachmentCount)")
+        }
         if let content, !content.isEmpty {
             lines.append("  ---")
             lines.append("  \(content.prefix(500))")
         }
         return lines.joined(separator: "\n")
+    }
+}
+
+public enum MailThreading {
+    public static func normalizedSubject(_ subject: String) -> String {
+        var value = subject.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let prefixes = ["re:", "fw:", "fwd:"]
+        while let prefix = prefixes.first(where: { value.hasPrefix($0) }) {
+            value.removeFirst(prefix.count)
+            value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return value
+    }
+}
+
+public struct MailQuery: Sendable {
+    public var search: String?
+    public var mailbox: String?
+    public var account: String?
+    public var sender: String?
+    public var receivedAfter: Date?
+    public var receivedBefore: Date?
+    public var unreadOnly: Bool
+    public var limit: Int
+    public var offset: Int
+    public var includeDetails: Bool
+    public var requestedFields: Set<String>
+
+    public init(
+        search: String? = nil, mailbox: String? = nil, account: String? = nil,
+        sender: String? = nil, receivedAfter: Date? = nil, receivedBefore: Date? = nil,
+        unreadOnly: Bool = false, limit: Int = 25, offset: Int = 0,
+        includeDetails: Bool = false, requestedFields: Set<String> = []
+    ) {
+        self.search = search
+        self.mailbox = mailbox
+        self.account = account
+        self.sender = sender
+        self.receivedAfter = receivedAfter
+        self.receivedBefore = receivedBefore
+        self.unreadOnly = unreadOnly
+        self.limit = max(0, limit)
+        self.offset = max(0, offset)
+        self.includeDetails = includeDetails
+        self.requestedFields = requestedFields
+    }
+}
+
+public struct MailPage: Codable, Sendable, Equatable {
+    public let messages: [MailMessage]
+    public let offset: Int
+    public let nextOffset: Int?
+    public let isPartial: Bool
+    public let warnings: [String]
+
+    public init(
+        messages: [MailMessage], offset: Int, nextOffset: Int? = nil,
+        isPartial: Bool = false, warnings: [String] = []
+    ) {
+        self.messages = messages
+        self.offset = offset
+        self.nextOffset = nextOffset
+        self.isPartial = isPartial
+        self.warnings = warnings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case messages
+        case offset
+        case nextOffset
+        case isPartial = "partial"
+        case warnings
     }
 }
 

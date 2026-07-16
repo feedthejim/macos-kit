@@ -7,11 +7,49 @@ public enum EventStatus: String, Codable, Sendable {
     case none
 }
 
+public enum EventAvailability: String, Codable, Sendable {
+    case busy
+    case free
+    case tentative
+    case unavailable
+    case notSupported
+}
+
+public enum EventParticipationStatus: String, Codable, Sendable {
+    case unknown
+    case pending
+    case accepted
+    case declined
+    case tentative
+    case delegated
+    case completed
+    case inProcess
+}
+
+public struct CalendarAttendee: Codable, Sendable, Equatable {
+    public let name: String?
+    public let email: String?
+    public let status: EventParticipationStatus
+    public let isCurrentUser: Bool
+
+    public init(
+        name: String? = nil,
+        email: String? = nil,
+        status: EventParticipationStatus = .unknown,
+        isCurrentUser: Bool = false
+    ) {
+        self.name = name
+        self.email = email
+        self.status = status
+        self.isCurrentUser = isCurrentUser
+    }
+}
+
 public struct CalendarEvent: Codable, Sendable, Equatable, FieldSelectable {
     public static let availableFields = [
         "id", "title", "startDate", "endDate", "isAllDay", "location",
-        "calendarName", "calendarColor", "status", "organizer", "notes",
-        "url", "meetingURL",
+        "calendarId", "calendarName", "calendarColor", "status", "availability",
+        "isRecurring", "attendees", "organizer", "notes", "url", "meetingURL",
     ]
 
     public let id: String
@@ -20,9 +58,13 @@ public struct CalendarEvent: Codable, Sendable, Equatable, FieldSelectable {
     public let endDate: Date
     public let isAllDay: Bool
     public let location: String?
+    public let calendarId: String
     public let calendarName: String
     public let calendarColor: String?
     public let status: EventStatus
+    public let availability: EventAvailability
+    public let isRecurring: Bool
+    public let attendees: [CalendarAttendee]
     public let organizer: String?
     public let notes: String?
     public let url: String?
@@ -35,9 +77,13 @@ public struct CalendarEvent: Codable, Sendable, Equatable, FieldSelectable {
         endDate: Date,
         isAllDay: Bool = false,
         location: String? = nil,
+        calendarId: String = "",
         calendarName: String = "",
         calendarColor: String? = nil,
         status: EventStatus = .confirmed,
+        availability: EventAvailability = .busy,
+        isRecurring: Bool = false,
+        attendees: [CalendarAttendee] = [],
         organizer: String? = nil,
         notes: String? = nil,
         url: String? = nil,
@@ -49,9 +95,13 @@ public struct CalendarEvent: Codable, Sendable, Equatable, FieldSelectable {
         self.endDate = endDate
         self.isAllDay = isAllDay
         self.location = location
+        self.calendarId = calendarId
         self.calendarName = calendarName
         self.calendarColor = calendarColor
         self.status = status
+        self.availability = availability
+        self.isRecurring = isRecurring
+        self.attendees = attendees
         self.organizer = organizer
         self.notes = notes
         self.url = url
@@ -74,17 +124,20 @@ extension CalendarEvent: TextRepresentable {
         let relative = RelativeTime.format(startDate)
         let meetingIndicator = meetingURL != nil ? "  \(shortenURL(meetingURL!))" : ""
 
-        let timePadded = timeStr.padding(toLength: 10, withPad: " ", startingAt: 0)
-        let titlePadded = title.padding(toLength: 30, withPad: " ", startingAt: 0)
-        let durationPadded = duration.padding(toLength: 12, withPad: " ", startingAt: 0)
-        let calPadded = calendarName.padding(toLength: 12, withPad: " ", startingAt: 0)
+        let timePadded = column(timeStr, width: 10)
+        let titlePadded = column(title, width: 30)
+        let durationPadded = column(duration, width: 12)
+        let calPadded = column(calendarName, width: 12)
 
         return "\(timePadded)\(titlePadded)\(durationPadded)\(calPadded)\(relative)\(meetingIndicator)"
     }
 
     public var textDetail: String {
         var lines = [title]
-        let timeRange = isAllDay ? "All day" : "\(startDate.formatted(date: .omitted, time: .shortened)) – \(endDate.formatted(date: .omitted, time: .shortened)) (\(RelativeTime.format(startDate)))"
+        let date = startDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+        let timeRange = isAllDay
+            ? "\(date), all day"
+            : "\(date), \(startDate.formatted(date: .omitted, time: .shortened)) – \(endDate.formatted(date: .omitted, time: .shortened)) (\(RelativeTime.format(startDate)))"
         lines.append("  Time:      \(timeRange)")
         lines.append("  Calendar:  \(calendarName)")
         if let location { lines.append("  Location:  \(location)") }
@@ -100,6 +153,11 @@ extension CalendarEvent: TextRepresentable {
             return host
         }
         return url
+    }
+
+    private func column(_ value: String, width: Int) -> String {
+        let truncated = value.count > width ? String(value.prefix(max(0, width - 1))) + "…" : value
+        return truncated.padding(toLength: width, withPad: " ", startingAt: 0)
     }
 }
 

@@ -7,21 +7,21 @@ public enum MCPTools: Sendable {
         // Calendar read
         MCPToolDefinition(
             name: "calendar_list",
-            description: "List calendar events within a date range. Returns compact events (title, time, calendar, meetingURL). Use 'fields' to request additional data like notes or organizer.",
+            description: "List calendar events within a date range. Returns compact events including status, availability, and recurrence. Use 'fields' to request additional data.",
             inputSchema: schema(properties: [
                 "from": prop(.string, "Start date: ISO 8601 (YYYY-MM-DD), 'today', 'tomorrow', day name"),
-                "to": prop(.string, "End date (same formats)"),
-                "calendar": prop(.string, "Filter by calendar name"),
+                "to": prop(.string, "Inclusive end date (same formats)"),
+                "calendar": prop(.string, "Filter by calendar name or ID"),
                 "limit": prop(.integer, "Max events to return"),
                 "includePast": prop(.boolean, "Include past events today (default: false)"),
-                "fields": prop(.string, "Comma-separated extra fields: notes, organizer, calendarColor, url, status. Default returns compact view."),
+                "fields": prop(.string, "Comma-separated extra fields: notes, organizer, attendees, calendarId, calendarColor, url. Default returns compact view."),
             ])
         ),
         MCPToolDefinition(
             name: "calendar_next",
             description: "Get the next upcoming calendar event. Returns compact view. Use 'fields' to request additional data.",
             inputSchema: schema(properties: [
-                "fields": prop(.string, "Comma-separated extra fields: notes, organizer, calendarColor, url, status"),
+                "fields": prop(.string, "Comma-separated extra fields: notes, organizer, attendees, calendarId, calendarColor, url"),
             ])
         ),
         MCPToolDefinition(
@@ -30,6 +30,10 @@ public enum MCPTools: Sendable {
             inputSchema: schema(properties: [
                 "date": prop(.string, "Date to check (default: today)"),
                 "minDuration": prop(.integer, "Minimum slot duration in minutes (default: 0)"),
+                "workStart": prop(.string, "Working day start (default: 9am)"),
+                "workEnd": prop(.string, "Working day end (default: 5pm)"),
+                "calendar": prop(.string, "Calendar name or ID"),
+                "bufferMinutes": prop(.integer, "Buffer before and after meetings (default: 0)"),
             ])
         ),
         MCPToolDefinition(
@@ -47,18 +51,21 @@ public enum MCPTools: Sendable {
                     "date": prop(.string, "Date: ISO 8601 (YYYY-MM-DD), 'today', 'tomorrow', day name"),
                     "startTime": prop(.string, "Start time: '3pm', '14:30', '9:30am'"),
                     "endTime": prop(.string, "End time (same formats)"),
-                    "calendar": prop(.string, "Calendar name (uses default if omitted)"),
+                    "calendar": prop(.string, "Calendar name or ID (uses default if omitted)"),
                     "location": prop(.string, "Event location"),
                     "notes": prop(.string, "Event notes"),
                     "allDay": prop(.boolean, "Create as all-day event"),
                 ],
-                required: ["title", "date", "startTime", "endTime"]
+                required: ["title", "date"]
             )
         ),
         MCPToolDefinition(
             name: "calendar_delete",
             description: "Delete a calendar event by its ID. Returns confirmation of deletion.",
-            inputSchema: schema(properties: ["eventId": prop(.string, "Event ID to delete")], required: ["eventId"])
+            inputSchema: schema(properties: [
+                "eventId": prop(.string, "Event ID to delete"),
+                "scope": prop(.string, "Recurring event scope: this or future (default: this)"),
+            ], required: ["eventId"])
         ),
         MCPToolDefinition(
             name: "calendar_update",
@@ -69,6 +76,14 @@ public enum MCPTools: Sendable {
                     "title": prop(.string, "New title"),
                     "notes": prop(.string, "New notes"),
                     "location": prop(.string, "New location"),
+                    "clearNotes": prop(.boolean, "Remove notes"),
+                    "clearLocation": prop(.boolean, "Remove location"),
+                    "calendar": prop(.string, "Move to a writable calendar name or ID"),
+                    "allDay": prop(.boolean, "Set all-day state. Converting to timed requires startTime and endTime"),
+                    "date": prop(.string, "Date used when converting to a timed event"),
+                    "startTime": prop(.string, "Start time required when setting allDay to false"),
+                    "endTime": prop(.string, "End time required when setting allDay to false"),
+                    "scope": prop(.string, "Recurring event scope: this or future (default: this)"),
                 ],
                 required: ["eventId"]
             )
@@ -82,6 +97,7 @@ public enum MCPTools: Sendable {
                     "date": prop(.string, "New date"),
                     "startTime": prop(.string, "New start time"),
                     "endTime": prop(.string, "New end time (optional, preserves duration)"),
+                    "scope": prop(.string, "Recurring event scope: this or future (default: this)"),
                 ],
                 required: ["eventId"]
             )
@@ -171,7 +187,11 @@ public enum MCPTools: Sendable {
                 "account": prop(.string, "Mail account name"),
                 "unreadOnly": prop(.boolean, "Only show unread messages"),
                 "limit": prop(.integer, "Max messages to return (default: 25)"),
-                "fields": prop(.string, "Comma-separated extra fields: toRecipients, ccRecipients, summary"),
+                "offset": prop(.integer, "Messages to skip for pagination (default: 0)"),
+                "sender": prop(.string, "Filter by sender name or address"),
+                "from": prop(.string, "Only messages received after this date"),
+                "to": prop(.string, "Inclusive received-through date"),
+                "fields": prop(.string, "Comma-separated extra fields: toRecipients, ccRecipients, summary, messageId, replyTo, messageSize, attachments"),
             ])
         ),
         MCPToolDefinition(
@@ -182,7 +202,11 @@ public enum MCPTools: Sendable {
                 "mailbox": prop(.string, "Mailbox name to search in"),
                 "account": prop(.string, "Account name"),
                 "limit": prop(.integer, "Max results (default: 25)"),
-                "fields": prop(.string, "Comma-separated extra fields: toRecipients, ccRecipients, summary"),
+                "offset": prop(.integer, "Results to skip for pagination (default: 0)"),
+                "sender": prop(.string, "Filter by sender name or address"),
+                "from": prop(.string, "Only messages received after this date"),
+                "to": prop(.string, "Inclusive received-through date"),
+                "fields": prop(.string, "Comma-separated extra fields: toRecipients, ccRecipients, summary, messageId, replyTo, messageSize, attachments"),
             ], required: ["query"])
         ),
         MCPToolDefinition(

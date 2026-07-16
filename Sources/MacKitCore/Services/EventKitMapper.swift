@@ -18,6 +18,24 @@ enum EventKitMapper {
         default: .none
         }
 
+        let availability: EventAvailability = switch ekEvent.availability {
+        case .busy: .busy
+        case .free: .free
+        case .tentative: .tentative
+        case .unavailable: .unavailable
+        default: .notSupported
+        }
+
+        let attendees = (ekEvent.attendees ?? []).map { attendee in
+            CalendarAttendee(
+                name: attendee.name,
+                email: attendee.url.absoluteString.removingPercentEncoding?
+                    .replacingOccurrences(of: "mailto:", with: ""),
+                status: participantStatus(attendee.participantStatus),
+                isCurrentUser: attendee.isCurrentUser
+            )
+        }
+
         return CalendarEvent(
             id: ekEvent.eventIdentifier ?? UUID().uuidString,
             title: ekEvent.title ?? "(No title)",
@@ -25,14 +43,31 @@ enum EventKitMapper {
             endDate: ekEvent.endDate,
             isAllDay: ekEvent.isAllDay,
             location: ekEvent.location,
+            calendarId: ekEvent.calendar.calendarIdentifier,
             calendarName: ekEvent.calendar.title,
             calendarColor: ekEvent.calendar.cgColor.flatMap { hexColor(from: $0) },
             status: status,
+            availability: availability,
+            isRecurring: ekEvent.hasRecurrenceRules,
+            attendees: attendees,
             organizer: ekEvent.organizer?.name,
             notes: ekEvent.notes,
             url: ekEvent.url?.absoluteString,
             meetingURL: meetingURL
         )
+    }
+
+    private static func participantStatus(_ status: EKParticipantStatus) -> EventParticipationStatus {
+        switch status {
+        case .pending: .pending
+        case .accepted: .accepted
+        case .declined: .declined
+        case .tentative: .tentative
+        case .delegated: .delegated
+        case .completed: .completed
+        case .inProcess: .inProcess
+        default: .unknown
+        }
     }
 
     static func hexColor(from cgColor: CGColor) -> String? {

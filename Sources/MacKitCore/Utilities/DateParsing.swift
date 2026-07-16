@@ -63,6 +63,14 @@ public enum DateParsing: Sendable {
         throw MacKitError.invalidDateFormat(input)
     }
 
+    /// Parses a range end. Date-only inputs include that whole day, while an
+    /// ISO datetime remains an exact exclusive boundary.
+    public static func parseRangeEnd(_ input: String) throws -> Date {
+        let parsed = try parse(input)
+        if input.lowercased().contains("t") { return parsed }
+        return calendar.date(byAdding: .day, value: 1, to: parsed)!
+    }
+
     /// Parses a time string like "3pm", "14:30", "9:30am" to today at that time.
     public static func parseTime(_ input: String) throws -> Date {
         let trimmed = input.trimmingCharacters(in: .whitespaces).lowercased()

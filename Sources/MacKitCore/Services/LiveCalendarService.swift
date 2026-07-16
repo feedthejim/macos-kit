@@ -2,16 +2,22 @@ import EventKit
 import Foundation
 
 public final class LiveCalendarService: CalendarServiceProtocol, @unchecked Sendable {
+    private static let permissionTimeoutSeconds = 30
+    private static let maximumQueryInterval: TimeInterval = 366 * 24 * 60 * 60
     private let store = EKEventStore()
 
     public init() {}
 
     public func requestAccess() async throws {
-        let granted: Bool
-        if #available(macOS 14.0, *) {
-            granted = try await store.requestFullAccessToEvents()
-        } else {
-            granted = try await store.requestAccess(to: .event)
+        let granted = try await withAsyncTimeout(
+            seconds: Self.permissionTimeoutSeconds,
+            timeoutError: permissionTimeoutError(.calendars)
+        ) { [self] in
+            if #available(macOS 14.0, *) {
+                return try await store.requestFullAccessToEvents()
+            } else {
+                return try await store.requestAccess(to: .event)
+            }
         }
 
         guard granted else {
@@ -32,43 +38,76 @@ public final class LiveCalendarService: CalendarServiceProtocol, @unchecked Send
                 title: cal.title,
                 source: cal.source.title,
                 color: cal.cgColor.flatMap { EventKitMapper.hexColor(from: $0) },
-                isSubscribed: cal.isSubscribed
+                isSubscribed: cal.isSubscribed,
+                isWritable: cal.allowsContentModifications
             )
         }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
-    public func events(from startDate: Date, to endDate: Date, calendars: [String]?) async throws -> [CalendarEvent] {
+    public func events(from startDate: Date, to endDate: Date, calendars: [String]?, limit: Int?) async throws -> [CalendarEvent] {
+        guard endDate > startDate else {
+            throw MacKitError.systemError("Calendar range must end after it starts.")
+        }
+        guard endDate.timeIntervalSince(startDate) <= Self.maximumQueryInterval else {
+            throw MacKitError.systemError(
+                "Calendar ranges are limited to 366 days. Split larger queries into smaller ranges."
+            )
+        }
+        if let limit, limit <= 0 { return [] }
+
         let ekCalendars: [EKCalendar]?
         if let calendars {
-            ekCalendars = store.calendars(for: .event).filter { calendars.contains($0.title) }
+            let available = store.calendars(for: .event)
+            var selected: [EKCalendar] = []
+            for reference in calendars {
+                if let byIdentifier = available.first(where: { $0.calendarIdentifier == reference }) {
+                    selected.append(byIdentifier)
+                    continue
+                }
+                let byTitle = available.filter { $0.title == reference }
+                guard !byTitle.isEmpty else {
+                    throw MacKitError.notFound("Calendar '\(reference)'")
+                }
+                guard byTitle.count == 1 else {
+                    throw MacKitError.systemError(
+                        "More than one calendar is named '\(reference)'. Use a calendar ID from 'mackit cal calendars --format json'."
+                    )
+                }
+                selected.append(byTitle[0])
+            }
+            ekCalendars = selected
         } else {
             ekCalendars = nil
         }
 
         let predicate = store.predicateForEvents(withStart: startDate, end: endDate, calendars: ekCalendars)
-        let ekEvents = store.events(matching: predicate)
-
-        return ekEvents.map { EventKitMapper.mapEvent($0) }
-            .sorted { $0.startDate < $1.startDate }
+        let sorted = store.events(matching: predicate).sorted { $0.startDate < $1.startDate }
+        let selected = limit.map { sorted.prefix($0) } ?? sorted.prefix(sorted.count)
+        return selected.map { EventKitMapper.mapEvent($0) }
     }
 
     public func currentEvent() async throws -> CalendarEvent? {
         let now = Date()
         let events = try await events(
-            from: now.addingTimeInterval(-12 * 3600),
+            from: now,
             to: now.addingTimeInterval(1),
-            calendars: nil
+            calendars: nil,
+            limit: 1
         )
         return events.first { $0.startDate <= now && $0.endDate > now }
     }
 
     public func nextEvent() async throws -> CalendarEvent? {
         let now = Date()
-        let events = try await events(
-            from: now,
-            to: now.addingTimeInterval(7 * 24 * 3600),
-            calendars: nil
-        )
-        return events.first { $0.startDate >= now || ($0.startDate <= now && $0.endDate > now) }
+        for days in [7, 30, 366] {
+            let events = try await events(
+                from: now,
+                to: Calendar.current.date(byAdding: .day, value: days, to: now)!,
+                calendars: nil,
+                limit: 1
+            )
+            if let event = events.first { return event }
+        }
+        return nil
     }
 }
